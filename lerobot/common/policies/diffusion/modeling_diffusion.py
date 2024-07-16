@@ -138,7 +138,7 @@ class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
 
         action = self._queues["action"].popleft()
         return action
-
+    
     def forward(self, batch: dict[str, Tensor]) -> dict[str, Tensor]:
         """Run the batch through the model and compute the loss for training or validation."""
         batch = self.normalize_inputs(batch)
@@ -147,8 +147,7 @@ class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
         batch = self.normalize_targets(batch)
         loss = self.diffusion.compute_loss(batch)
         return {"loss": loss}
-
-
+    
 def _make_noise_scheduler(name: str, **kwargs: dict) -> DDPMScheduler | DDIMScheduler:
     """
     Factory for noise scheduler instances of the requested type. All kwargs are passed
@@ -270,7 +269,10 @@ class DiffusionModel(nn.Module):
         actions = self.conditional_sample(batch_size, global_cond=global_cond)
 
         # Extract `n_action_steps` steps worth of actions (from the current observation).
-        start = n_obs_steps - 1
+        if self.config.start_horizon_at_current_step:
+            start = 0
+        else:
+            start = n_obs_steps - 1
         end = start + self.config.n_action_steps
         actions = actions[:, start:end]
 
@@ -291,7 +293,7 @@ class DiffusionModel(nn.Module):
         }
         """
         # Input validation.
-        assert set(batch).issuperset({"observation.state", "action", "action_is_pad"})
+        assert set(batch).issuperset({"observation.state", "action"})
         assert "observation.images" in batch or "observation.environment_state" in batch
         n_obs_steps = batch["observation.state"].shape[1]
         horizon = batch["action"].shape[1]
@@ -332,15 +334,15 @@ class DiffusionModel(nn.Module):
         # Mask loss wherever the action is padded with copies (edges of the dataset trajectory).
         if self.config.do_mask_loss_for_padding:
             if "action_is_pad" not in batch:
-                raise ValueError(
-                    "You need to provide 'action_is_pad' in the batch when "
-                    f"{self.config.do_mask_loss_for_padding=}."
-                )
+                # raise ValueError(
+                #     "You need to provide 'action_is_pad' in the batch when "
+                #     f"{self.config.do_mask_loss_for_padding=}."
+                # )
+                batch['action_is_pad'] = torch.ones_like(batch['action'], dtype=torch.bool).to(batch['action'].device)
             in_episode_bound = ~batch["action_is_pad"]
             loss = loss * in_episode_bound.unsqueeze(-1)
 
         return loss.mean()
-
 
 class SpatialSoftmax(nn.Module):
     """
@@ -439,7 +441,17 @@ class DiffusionRgbEncoder(nn.Module):
         )
         # Note: This assumes that the layer4 feature map is children()[-3]
         # TODO(alexander-soare): Use a safer alternative.
-        self.backbone = nn.Sequential(*(list(backbone_model.children())[:-2]))
+        backbone_layers = list(backbone_model.children())[:-2]
+        if config.input_shapes["observation.image"][0] != 3:
+            # Replace the first layer to accept different number of channels.
+            backbone_layers[0] = nn.Conv2d(
+                config.input_shapes["observation.image"][0], backbone_layers[0].out_channels, 
+                kernel_size=backbone_layers[0].kernel_size, 
+                stride=backbone_layers[0].stride, 
+                padding=backbone_layers[0].padding, 
+                bias=False)
+            
+        self.backbone = nn.Sequential(*(backbone_layers))
         if config.use_group_norm:
             if config.pretrained_backbone_weights:
                 raise ValueError(

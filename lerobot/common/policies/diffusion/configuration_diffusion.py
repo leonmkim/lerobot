@@ -100,6 +100,7 @@ class DiffusionConfig:
     n_obs_steps: int = 2
     horizon: int = 16
     n_action_steps: int = 8
+    start_horizon_at_current_step: bool = True
 
     input_shapes: dict[str, list[int]] = field(
         default_factory=lambda: {
@@ -137,7 +138,7 @@ class DiffusionConfig:
     diffusion_step_embed_dim: int = 128
     use_film_scale_modulation: bool = True
     # Noise scheduler.
-    noise_scheduler_type: str = "DDPM"
+    noise_scheduler_type: str = "DDIM" # for real world, use "DDIM" and set num_inference_steps low
     num_train_timesteps: int = 100
     beta_schedule: str = "squaredcos_cap_v2"
     beta_start: float = 0.0001
