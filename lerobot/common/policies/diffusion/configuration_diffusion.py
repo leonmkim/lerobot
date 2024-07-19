@@ -131,6 +131,7 @@ class DiffusionConfig:
     pretrained_backbone_weights: str | None = None
     use_group_norm: bool = True
     spatial_softmax_num_keypoints: int = 32
+
     # Unet.
     down_dims: tuple[int, ...] = (512, 1024, 2048)
     kernel_size: int = 5
@@ -152,7 +153,11 @@ class DiffusionConfig:
 
     # Loss computation
     do_mask_loss_for_padding: bool = False
-
+    
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+    
     def __post_init__(self):
         """Input validation (not exhaustive)."""
         if not self.vision_backbone.startswith("resnet"):
