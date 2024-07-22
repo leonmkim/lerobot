@@ -278,7 +278,7 @@ class DiffusionModel(nn.Module):
 
         return actions
 
-    def compute_loss(self, batch: dict[str, Tensor]) -> Tensor:
+    def compute_loss(self, batch: dict[str, Tensor], reduction='mean') -> Tensor:
         """
         This function expects `batch` to have (at least):
         {
@@ -342,7 +342,12 @@ class DiffusionModel(nn.Module):
             in_episode_bound = ~batch["action_is_pad"]
             loss = loss * in_episode_bound.unsqueeze(-1)
 
-        return loss.mean()
+        if reduction == 'mean':
+            return loss.mean()
+        elif reduction == 'none':
+            return loss
+        else:
+            raise ValueError(f"Unsupported reduction {reduction}")
 
 class SpatialSoftmax(nn.Module):
     """
