@@ -15,7 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from dataclasses import dataclass, field
-
+from typing import Any, Optional, Union
+from torch import nn
 
 @dataclass
 class DiffusionConfig:
@@ -126,11 +127,17 @@ class DiffusionConfig:
     # Architecture / modeling.
     # Vision backbone.
     vision_backbone: str = "resnet18"
-    crop_shape: tuple[int, int] | None = (84, 84)
-    crop_is_random: bool = True
+    # crop_shape: tuple[int, int] | None = (84, 84)
+    # crop_is_random: bool = True
     pretrained_backbone_weights: str | None = None
     use_group_norm: bool = True
     spatial_softmax_num_keypoints: int = 32
+    transforms: Optional[list[Union[nn.Module, dict[str, Any]]]] = field(default_factory=lambda: [
+        # {"type": "RandomCrop", "ratio": 0.95},
+        # {"_target_": "torchvision.transforms.v2.RandomRotation", "degrees": [-5, 5], "expand": False},
+        {"_target_": "torchaug.transforms.RandomAffine", "degrees": (-5, 5), "translate": (0.05, 0.05)},
+        {"_target_": "torchaug.transforms.ColorJitter", "brightness": 0.3, "contrast": 0.4, "saturation": 0.5, "hue": 0.08},
+    ])
 
     # Unet.
     down_dims: tuple[int, ...] = (512, 1024, 2048)
@@ -171,17 +178,17 @@ class DiffusionConfig:
             raise ValueError("You must provide at least one image or the environment state among the inputs.")
 
         if len(image_keys) > 0:
-            if self.crop_shape is not None:
-                for image_key in image_keys:
-                    if (
-                        self.crop_shape[0] > self.input_shapes[image_key][1]
-                        or self.crop_shape[1] > self.input_shapes[image_key][2]
-                    ):
-                        raise ValueError(
-                            f"`crop_shape` should fit within `input_shapes[{image_key}]`. Got {self.crop_shape} "
-                            f"for `crop_shape` and {self.input_shapes[image_key]} for "
-                            "`input_shapes[{image_key}]`."
-                        )
+            # if self.crop_shape is not None:
+            #     for image_key in image_keys:
+            #         if (
+            #             self.crop_shape[0] > self.input_shapes[image_key][1]
+            #             or self.crop_shape[1] > self.input_shapes[image_key][2]
+            #         ):
+            #             raise ValueError(
+            #                 f"`crop_shape` should fit within `input_shapes[{image_key}]`. Got {self.crop_shape} "
+            #                 f"for `crop_shape` and {self.input_shapes[image_key]} for "
+            #                 "`input_shapes[{image_key}]`."
+            #             )
             # Check that all input images have the same shape.
             first_image_key = next(iter(image_keys))
             for image_key in image_keys:
