@@ -170,13 +170,13 @@ class DiffusionModel(nn.Module):
 
         # Build observation encoders (depending on which observations are provided).
         global_cond_dim = config.input_shapes["observation.state"][0]
-        num_images = len([k for k in config.input_shapes if k.startswith("observation.image")])
+        self.num_images = len([k for k in config.input_shapes if k.startswith("observation.image")])
         self._use_images = False
         self._use_env_state = False
-        if num_images > 0:
+        if self.num_images > 0:
             self._use_images = True
             self.rgb_encoder = DiffusionRgbEncoder(config)
-            global_cond_dim += self.rgb_encoder.feature_dim * num_images
+            global_cond_dim += self.rgb_encoder.feature_dim * self.num_images
         if "observation.environment_state" in config.input_shapes:
             self._use_env_state = True
             global_cond_dim += config.input_shapes["observation.environment_state"][0]
@@ -235,7 +235,10 @@ class DiffusionModel(nn.Module):
         # Extract image feature (first combine batch, sequence, and camera index dims).
         if self._use_images:
             img_features = self.rgb_encoder(
-                einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ...")
+                # einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ...")
+                einops.rearrange(batch["observation.images"], "b s n ... -> (b n) s ..."),
+                batch_size=batch_size,
+                num_views=self.num_images,
             )
             # Separate batch dim and sequence dim back out. The camera index dim gets absorbed into the
             # feature dim (effectively concatenating the camera features).
@@ -514,17 +517,20 @@ class DiffusionRgbEncoder(nn.Module):
         self.out = nn.Linear(config.spatial_softmax_num_keypoints * 2, self.feature_dim)
         self.relu = nn.ReLU()
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, batch_size: int, num_views:int) -> Tensor:
         """
+        I altered to preserve the sequence dim 
+        so that the same transform is applied to the images in the sequence
+        while different transforms are applied to each sequence in the batch
         Args:
-            x: (B, C, H, W) image tensor with pixel values in [0, 1].
+            x: (B*N, S, C, H, W) image tensor with pixel values in [0, 1].
         Returns:
-            (B, D) image feature.
+            (B*S*N, D) image feature.
         """
         # Preprocess: maybe crop (if it was set up in the __init__).
         if self.training:
             if self.color_jitter is not None: # we assume color is always the first 3 channels
-                x[:, :3] = self.color_jitter(x[:, :3])
+                x[:, :, :3] = self.color_jitter(x[:, :, :3])
             x = self.augmentations(x)
         if self.do_crop and not self.training:
             # if self.training:  # noqa: SIM108
@@ -536,6 +542,8 @@ class DiffusionRgbEncoder(nn.Module):
             # else:
                 # Always use center crop for eval.
             x = self.center_crop(x)
+        # rearrange to flatten b and s dims
+        x = einops.rearrange(x, "(b n) s ... -> (b s n) ...", b=batch_size, n=num_views)
         # Extract backbone feature.
         x = torch.flatten(self.pool(self.backbone(x)), start_dim=1)
         # Final linear layer with non-linearity.
