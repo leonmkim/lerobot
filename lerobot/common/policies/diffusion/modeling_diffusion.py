@@ -529,9 +529,10 @@ class DiffusionRgbEncoder(nn.Module):
         """
         # Preprocess: maybe crop (if it was set up in the __init__).
         if self.training:
-            if self.color_jitter is not None: # we assume color is always the first 3 channels
-                x[:, :, :3] = self.color_jitter(x[:, :, :3])
-            x = self.augmentations(x)
+            with torch.no_grad(): # adding this in to resolve inplace modification error...
+                if self.color_jitter is not None: # we assume color is always the first 3 channels
+                        x[:, :, :3] = self.color_jitter(x[:, :, :3])
+                x = self.augmentations(x)
         if self.do_crop and not self.training:
             # if self.training:  # noqa: SIM108
             #     # apply color jitter to only the color channels
