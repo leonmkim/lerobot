@@ -22,7 +22,7 @@ TODO(alexander-soare):
 
 import math
 from collections import deque
-from typing import Callable
+from typing import Callable, Optional
 
 import einops
 import numpy as np
@@ -30,7 +30,7 @@ import torch
 import torch.nn.functional as F  # noqa: N812
 import torchvision
 # from torchvision.transforms.v2 import RandomCrop, RandomRotation, ColorJitter, CenterCrop
-from torchaug.transforms import RandomCrop, RandomRotation, RandomColorJitter, CenterCrop, SequentialTransform
+# from torchaug.transforms import RandomCrop, RandomRotation, RandomColorJitter, CenterCrop, SequentialTransform
 from diffusers.schedulers.scheduling_ddim import DDIMScheduler
 from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from huggingface_hub import PyTorchModelHubMixin
@@ -43,6 +43,7 @@ from lerobot.common.policies.utils import (
     get_dtype_from_parameters,
     populate_queues,
 )
+
 
 
 class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
@@ -234,11 +235,17 @@ class DiffusionModel(nn.Module):
         global_cond_feats = [batch["observation.state"]]
         # Extract image feature (first combine batch, sequence, and camera index dims).
         if self._use_images:
+            context_observation_images = batch.get("context_observation.images", None)
+            if context_observation_images is not None:
+                context_observation_images = einops.rearrange(
+                    context_observation_images, "b n ... -> (b n) ..."
+                )
             img_features = self.rgb_encoder(
-                # einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ...")
-                einops.rearrange(batch["observation.images"], "b s n ... -> (b n) s ..."),
+                einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ..."),
+                # einops.rearrange(batch["observation.images"], "b s n ... -> (b n) s ..."),
                 batch_size=batch_size,
                 num_views=self.num_images,
+                context_observation_images=context_observation_images,
             )
             # Separate batch dim and sequence dim back out. The camera index dim gets absorbed into the
             # feature dim (effectively concatenating the camera features).
@@ -292,7 +299,8 @@ class DiffusionModel(nn.Module):
             "observation.images": (B, n_obs_steps, num_cameras, C, H, W)
                 AND/OR
             "observation.environment_state": (B, environment_dim)
-
+                AND/OR
+            "observation.images_context": (B, n_obs_steps, num_cameras, C, H, W)
             "action": (B, horizon, action_dim)
             "action_is_pad": (B, horizon)
         }
@@ -434,6 +442,7 @@ class DiffusionRgbEncoder(nn.Module):
     def __init__(self, config: DiffusionConfig):
         super().__init__()
         # # Set up optional preprocessing.
+     
         # if config.crop_shape is not None:
         #     self.do_crop = True
         #     # Always use center crop for eval
@@ -444,29 +453,30 @@ class DiffusionRgbEncoder(nn.Module):
         #         self.maybe_random_crop = self.center_crop
         # else:
         #     self.do_crop = False
-        if config.transforms is not None:
-            self.do_crop = False
-            self.color_jitter = None
-            augmentation_list = []
-            for transform in config.transforms:
-                if not isinstance(transform, torch.nn.Module):
-                    assert transform['type'] == 'RandomCrop'
-                    ratio = transform['ratio']
-                    crop_size = (int(config.input_shapes["observation.image"][-2] * ratio), int(config.input_shapes["observation.image"][-1] * ratio))
-                    augmentation_list.append(RandomCrop(crop_size))
+        
+        # if config.transforms is not None:
+        #     self.do_crop = False
+        #     self.color_jitter = None
+        #     augmentation_list = []
+        #     for transform in config.transforms:
+        #         if not isinstance(transform, torch.nn.Module):
+        #             assert transform['type'] == 'RandomCrop'
+        #             ratio = transform['ratio']
+        #             crop_size = (int(config.input_shapes["observation.image"][-2] * ratio), int(config.input_shapes["observation.image"][-1] * ratio))
+        #             augmentation_list.append(RandomCrop(crop_size))
 
-                    self.do_crop = True
-                    self.center_crop = CenterCrop(crop_size)
-                elif isinstance(transform, RandomColorJitter):
-                    self.color_jitter = transform
-                else:
-                    augmentation_list.append(transform)
+        #             self.do_crop = True
+        #             self.center_crop = CenterCrop(crop_size)
+        #         elif isinstance(transform, RandomColorJitter):
+        #             self.color_jitter = transform
+        #         else:
+        #             augmentation_list.append(transform)
 
-            if len(augmentation_list) > 0:
-                # self.augmentations = nn.Sequential(*augmentation_list)
-                self.augmentations = SequentialTransform(augmentation_list)
-        else:
-            self.augmentations = nn.Identity()
+        #     if len(augmentation_list) > 0:
+        #         # self.augmentations = nn.Sequential(*augmentation_list)
+        #         self.augmentations = SequentialTransform(augmentation_list)
+        # else:
+        #     self.augmentations = nn.Identity()
 
         # Set up backbone.
         backbone_model = getattr(torchvision.models, config.vision_backbone)(
@@ -483,7 +493,6 @@ class DiffusionRgbEncoder(nn.Module):
                 stride=backbone_layers[0].stride, 
                 padding=backbone_layers[0].padding, 
                 bias=False)
-            
         self.backbone = nn.Sequential(*(backbone_layers))
         if config.use_group_norm:
             if config.pretrained_backbone_weights:
@@ -495,7 +504,7 @@ class DiffusionRgbEncoder(nn.Module):
                 predicate=lambda x: isinstance(x, nn.BatchNorm2d),
                 func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
             )
-
+        
         # Set up pooling and final layers.
         # Use a dry run to get the feature map shape.
         # The dummy input should take the number of image channels from `config.input_shapes` and it should
@@ -513,44 +522,94 @@ class DiffusionRgbEncoder(nn.Module):
             dummy_feature_map = self.backbone(dummy_input)
         feature_map_shape = tuple(dummy_feature_map.shape[1:])
         self.pool = SpatialSoftmax(feature_map_shape, num_kp=config.spatial_softmax_num_keypoints)
+        self.pre_feature_dim = config.spatial_softmax_num_keypoints * 2
         self.feature_dim = config.spatial_softmax_num_keypoints * 2
-        self.out = nn.Linear(config.spatial_softmax_num_keypoints * 2, self.feature_dim)
+        
+        if 'context_observation.image' in config.input_shapes:
+            context_backbone_model = getattr(torchvision.models, config.vision_backbone)(
+                weights=config.pretrained_backbone_weights
+            )
+            context_backbone_layers = list(context_backbone_model.children())[:-2]
+            if config.input_shapes["context_observation.image"][0] != 3:
+                # Replace the first layer to accept different number of channels.
+                context_backbone_layers[0] = nn.Conv2d(
+                    config.input_shapes["context_observation.image"][0], context_backbone_layers[0].out_channels, 
+                    kernel_size=context_backbone_layers[0].kernel_size, 
+                    stride=context_backbone_layers[0].stride, 
+                    padding=context_backbone_layers[0].padding, 
+                    bias=False)
+            self.context_backbone = nn.Sequential(*(context_backbone_layers))
+            if config.use_group_norm:
+                if config.pretrained_backbone_weights:
+                    raise ValueError(
+                        "You can't replace BatchNorm in a pretrained model without ruining the weights!"
+                    )
+                self.context_backbone = _replace_submodules(
+                    root_module=self.context_backbone,
+                    predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                    func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
+                )
+
+            context_image_key = 'context_observation.image'
+            context_dummy_input_h_w = config.input_shapes[context_image_key][1:]
+            context_dummy_input = torch.zeros(size=(1, config.input_shapes[context_image_key][0], *context_dummy_input_h_w))
+            with torch.inference_mode():
+                context_dummy_feature_map = self.context_backbone(context_dummy_input)
+            context_feature_map_shape = tuple(context_dummy_feature_map.shape[1:])
+            self.context_pool = SpatialSoftmax(context_feature_map_shape, num_kp=config.spatial_softmax_num_keypoints//2)
+            self.feature_dim += (config.spatial_softmax_num_keypoints//2) * 2
+            self.pre_feature_dim += (config.spatial_softmax_num_keypoints//2) * 2
+
+        self.out = nn.Linear(self.pre_feature_dim, self.feature_dim)
         self.relu = nn.ReLU()
 
-    def forward(self, x: Tensor, batch_size: int, num_views:int) -> Tensor:
+    # def forward(self, x: Tensor, batch_size: int, num_views:int) -> Tensor:
+    def forward(self, observation_images: Tensor, batch_size: int, num_views:int, context_observation_images: Optional[Tensor] = None) -> Tensor:
+        # I altered to preserve the sequence dim 
+        # so that the same transform is applied to the images in the sequence
+        # while different transforms are applied to each sequence in the batch
+        # Args:
+        #     x: (B*N, S, C, H, W) image tensor with pixel values in [0, 1].
         """
-        I altered to preserve the sequence dim 
-        so that the same transform is applied to the images in the sequence
-        while different transforms are applied to each sequence in the batch
+        moved augmentations upstream so now first dim is B*S*N
         Args:
-            x: (B*N, S, C, H, W) image tensor with pixel values in [0, 1].
+            x: (B*S*N, C, H, W) image tensor with pixel values in [0, 1].
         Returns:
             (B*S*N, D) image feature.
         """
         # Preprocess: maybe crop (if it was set up in the __init__).
-        if self.training:
-            with torch.no_grad(): # adding this in to resolve inplace modification error...
-                if self.color_jitter is not None: # we assume color is always the first 3 channels
-                        x[:, :, :3] = self.color_jitter(x[:, :, :3])
-                x = self.augmentations(x)
-        if self.do_crop and not self.training:
-            # if self.training:  # noqa: SIM108
-            #     # apply color jitter to only the color channels
-            #     if self.color_jitter is not None: # we assume color is always the first 3 channels
-            #         x[:, :3] = self.color_jitter(x[:, :3])
-            #     x = self.augmentations(x)
+        
+        # if self.training:
+        #     with torch.no_grad(): # adding this in to resolve inplace modification error...
+        #         if self.color_jitter is not None: # we assume color is always the first 3 channels
+        #                 x[:, :, :3] = self.color_jitter(x[:, :, :3])
+        #         x = self.augmentations(x)
+        # if self.do_crop and not self.training:
+        #     # if self.training:  # noqa: SIM108
+        #     #     # apply color jitter to only the color channels
+        #     #     if self.color_jitter is not None: # we assume color is always the first 3 channels
+        #     #         x[:, :3] = self.color_jitter(x[:, :3])
+        #     #     x = self.augmentations(x)
 
-            # else:
-                # Always use center crop for eval.
-            x = self.center_crop(x)
+        #     # else:
+        #         # Always use center crop for eval.
+        #     x = self.center_crop(x)
+
         # rearrange to flatten b and s dims
-        x = einops.rearrange(x, "(b n) s ... -> (b s n) ...", b=batch_size, n=num_views)
+        # x = einops.rearrange(x, "(b n) s ... -> (b s n) ...", b=batch_size, n=num_views)
         # Extract backbone feature.
-        x = torch.flatten(self.pool(self.backbone(x)), start_dim=1)
-        # Final linear layer with non-linearity.
-        x = self.relu(self.out(x))
-        return x
+        observation_images = torch.flatten(self.pool(self.backbone(observation_images)), start_dim=1)
 
+        # TODO FIX THIS WHEN S is not 1! Need to probably broadcast context features to all S??
+        if context_observation_images is not None:
+            context_observation_images = torch.flatten(self.context_pool(self.context_backbone(context_observation_images)), start_dim=1)
+            # make sure this results in 2*config.spatial_softmax_num_keypoints*2
+            observation_images = torch.cat([observation_images, context_observation_images], dim=-1)
+
+        # Final linear layer with non-linearity.
+        observation_images = self.relu(self.out(observation_images))
+
+        return observation_images
 
 def _replace_submodules(
     root_module: nn.Module, predicate: Callable[[nn.Module], bool], func: Callable[[nn.Module], nn.Module]
