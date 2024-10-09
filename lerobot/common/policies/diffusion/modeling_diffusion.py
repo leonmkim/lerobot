@@ -945,6 +945,8 @@ class Unet1dEncoder(nn.Module):
         # treat the sequence dim as batch dim 
         # TODO: make this 2D across the sequence and timestep dims!!
         batch_size, seq_len, timesteps, input_dim = x.shape
+        assert timesteps == self.config.history_length, f"Expected {self.config.history_length} timesteps, got {timesteps}"
+        assert input_dim == self.config.in_channels, f"Expected {self.config.in_channels} input channels, got {input_dim}"
         x = einops.rearrange(x, "b s t d -> (b s) d t")
 
         # Run encoder, keeping track of skip features to pass to the decoder.
@@ -1007,7 +1009,12 @@ class ResnetBlock1d(nn.Module):
         return out
 #%%
 if __name__ == '__main__':
-    action_history_config = Unet1dEncoderConfig(in_channels=7, out_channels=128, history_length=36)
+    downsample_kernel_size = 3
+    downsample_stride = 2
+    downsample_padding = 1
+    action_history_config = Unet1dEncoderConfig(in_channels=7, out_channels=32, history_length=6, 
+                                                downsample_kernel_size=downsample_kernel_size, downsample_stride=downsample_stride, downsample_padding=downsample_padding,
+                                                )
     print(action_history_config.down_dims)
     #%%
     action_history_encoder = Unet1dEncoder(action_history_config)
@@ -1016,7 +1023,7 @@ if __name__ == '__main__':
     print(f"Number of parameters: {sum(p.numel() for p in action_history_encoder.parameters())}")
     print(f"Approx size of model: {sum(p.numel() for p in action_history_encoder.parameters()) * 4 / 1024 / 1024:.2f} MB")
     #%%
-    dummy_action_history = torch.randn(2, 2, 36, 7)
+    dummy_action_history = torch.randn(2, 2, 6, 7)
     dummy_output = action_history_encoder(dummy_action_history)
-
+    print(dummy_output.shape)
 # %%

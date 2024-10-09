@@ -40,9 +40,10 @@ class Unet1dEncoderConfig:
     # down_dims: tuple[int, ...] = (16, 32, 64)
     history_length: int = 8
     kernel_size: int = 5
-    n_groups: int = 8
+    # n_groups: int = 8
 
     # downsampling
+    # 5,3,1 good choice for history_length=36 as you get 3 down dims
     downsample_kernel_size: int = 5 #3
     downsample_stride: int = 3 #2
     downsample_padding: int = 1
@@ -57,15 +58,20 @@ class Unet1dEncoderConfig:
             raise ValueError("`kernel_size` must be an odd number. Got {self.kernel_size}.")
         assert self.history_length % 2 == 0, "history_length must be even."
 
+        # choose n_groups based on in channels, such that channels per group is close to 16
+        self.n_groups = math.ceil(self.in_channels/16)
+
         # determine down dims based on history length to attain a resolution of 1. 
         # Assume kernel size is 3, stride is 2 and padding is 1 such that the resolution is halved at each layer.
         curr_history_length = self.history_length
         curr_down_dim = curr_history_length
         # make sure the down dim is divisible by number of groups
         curr_down_dim = math.floor(curr_down_dim/self.n_groups) * self.n_groups
+        assert curr_down_dim > 0, "down dim must be greater than 0."
         down_dims = []
         while curr_history_length > 1:
             curr_history_length = math.floor((curr_history_length + (2*self.downsample_padding) - (self.downsample_kernel_size - 1) - 1)/self.downsample_stride + 1)
+            assert curr_history_length > 0, "history_length must be greater than 0."
             curr_down_dim *= 2
             down_dims.append(curr_down_dim)
         assert curr_history_length == 1, "history_length must be such that the resolution is 1."
