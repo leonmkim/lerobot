@@ -1,5 +1,8 @@
 #!/usr/bin/env python
-
+#%%
+# autoreload magic
+# %load_ext autoreload
+# %autoreload 2
 # Copyright 2024 Columbia Artificial Intelligence, Robotics Lab,
 # and The HuggingFace Inc. team. All rights reserved.
 #
@@ -36,15 +39,13 @@ from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
 from huggingface_hub import PyTorchModelHubMixin
 from torch import Tensor, nn
 
-from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig
+from lerobot.common.policies.diffusion.configuration_diffusion import DiffusionConfig, Unet1dEncoderConfig
 from lerobot.common.policies.normalize import Normalize, Unnormalize
 from lerobot.common.policies.utils import (
     get_device_from_parameters,
     get_dtype_from_parameters,
     populate_queues,
 )
-
-
 
 class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
     """
@@ -174,6 +175,7 @@ class DiffusionModel(nn.Module):
         self.num_images = len([k for k in config.input_shapes if k.startswith("observation.image")])
         self._use_images = False
         self._use_env_state = False
+        self._use_action_history = False
         if self.num_images > 0:
             self._use_images = True
             self.rgb_encoder = DiffusionRgbEncoder(config)
@@ -181,6 +183,11 @@ class DiffusionModel(nn.Module):
         if "observation.environment_state" in config.input_shapes:
             self._use_env_state = True
             global_cond_dim += config.input_shapes["observation.environment_state"][0]
+        
+        if "observation.action_history" in config.input_shapes:
+            self._use_action_history = True
+            self.action_history_encoder = Unet1dEncoder(config.action_history_encoder_config)
+            global_cond_dim += config.action_history_encoder_config.out_channels
 
         self.unet = DiffusionConditionalUnet1d(config, global_cond_dim=global_cond_dim * config.n_obs_steps)
 
@@ -253,7 +260,11 @@ class DiffusionModel(nn.Module):
                 img_features, "(b s n) ... -> b s (n ...)", b=batch_size, s=n_obs_steps
             )
             global_cond_feats.append(img_features)
-
+        # if "observation.action_history" in batch:
+        if self._use_action_history:
+            action_history_encoding = self.action_history_encoder(batch["observation.action_history"])
+            # get BxSxD encoding
+            global_cond_feats.append(action_history_encoding)
         if self._use_env_state:
             global_cond_feats.append(batch["observation.environment_state"])
 
@@ -860,3 +871,152 @@ class DiffusionConditionalResidualBlock1d(nn.Module):
         out = self.conv2(out)
         out = out + self.residual_conv(x)
         return out
+
+class Unet1dEncoder(nn.Module):
+    """A 1D convolutional UNet without FiLM modulation for conditioning."""
+
+    def __init__(self, config: Unet1dEncoderConfig):
+        super().__init__()
+
+        self.config = config
+
+        # In channels / out channels for each downsampling block in the Unet's encoder. For the decoder, we
+        # just reverse these.
+        in_out = [(config.in_channels, config.down_dims[0])] + list(
+            zip(config.down_dims[:-1], config.down_dims[1:], strict=True)
+        )
+
+        # Unet encoder.
+        self.down_modules = nn.ModuleList([])
+        for ind, (dim_in, dim_out) in enumerate(in_out):
+            # is_last = ind >= (len(in_out) - 1)
+            self.down_modules.append(
+                nn.ModuleList(
+                    [
+                        ResnetBlock1d(dim_in, dim_out, config.kernel_size, config.n_groups),
+                        ResnetBlock1d(dim_out, dim_out, config.kernel_size, config.n_groups),
+                        # Downsample as long as it is not the last block.
+                        # nn.Conv1d(dim_out, dim_out, config.downsample_kernel_size, config.downsample_stride, config.downsample_padding) if not is_last else nn.Identity(),
+                        nn.Conv1d(dim_out, dim_out, config.downsample_kernel_size, config.downsample_stride, config.downsample_padding),
+                    ]
+                )
+            )
+
+        # Processing in the middle of the auto-encoder.
+        self.mid_modules = nn.ModuleList(
+            [
+                ResnetBlock1d(config.down_dims[-1], config.down_dims[-1], config.kernel_size, config.n_groups),
+                ResnetBlock1d(config.down_dims[-1], config.down_dims[-1], config.kernel_size, config.n_groups),
+            ]
+        )
+
+        self.final_conv = nn.Sequential(
+            DiffusionConv1dBlock(config.down_dims[-1], config.down_dims[-1], kernel_size=config.kernel_size),
+            nn.Conv1d(config.down_dims[-1], config.out_channels, 1),
+        )
+        
+        # # Unet decoder.
+        # self.up_modules = nn.ModuleList([])
+        # for ind, (dim_out, dim_in) in enumerate(reversed(in_out[1:])):
+        #     is_last = ind >= (len(in_out) - 1)
+        #     self.up_modules.append(
+        #         nn.ModuleList(
+        #             [
+        #                 # dim_in * 2, because it takes the encoder's skip connection as well
+        #                 DiffusionResidualBlock1d(dim_in * 2, dim_out, config.kernel_size, config.n_groups),
+        #                 DiffusionResidualBlock1d(dim_out, dim_out, config.kernel_size, config.n_groups),
+        #                 # Upsample as long as it is not the last block.
+        #                 nn.ConvTranspose1d(dim_out, dim_out, 4, 2, 1) if not is_last else nn.Identity(),
+        #             ]
+        #         )
+        #     )
+
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: (B, S, T, input_dim) tensor for input to the Unet.
+            S is the number of observation history steps
+            T is the number of timesteps in the action trajectory
+        Returns:
+            (B, S, output_dim) encoding of the input.
+        """
+        # For 1D convolutions we'll need feature dimension first.
+        # treat the sequence dim as batch dim 
+        # TODO: make this 2D across the sequence and timestep dims!!
+        batch_size, seq_len, timesteps, input_dim = x.shape
+        x = einops.rearrange(x, "b s t d -> (b s) d t")
+
+        # Run encoder, keeping track of skip features to pass to the decoder.
+        # encoder_skip_features: list[Tensor] = []
+        for resnet, resnet2, downsample in self.down_modules:
+            x = resnet(x)
+            x = resnet2(x)
+            # encoder_skip_features.append(x)
+            x = downsample(x)
+            # print(x.shape)
+
+        for mid_module in self.mid_modules:
+            x = mid_module(x)
+
+        # Run decoder, using the skip features from the encoder.
+        # for resnet, resnet2, upsample in self.up_modules:
+        #     x = torch.cat((x, encoder_skip_features.pop()), dim=1)
+        #     x = resnet(x)
+        #     x = resnet2(x)
+        #     x = upsample(x)
+
+        x = self.final_conv(x)
+
+        # x = einops.rearrange(x, "b d t -> b t d")
+        x = einops.rearrange(x, "(b s) d t -> b s t d", b=batch_size, s=seq_len)
+        assert x.shape[-2] == 1, f"Expected timesteps to be downsampled to 1, got {x.shape[-2]}"
+        x = x.squeeze(-2)
+        return x # (B, S, output_dim)
+
+class ResnetBlock1d(nn.Module):
+    """ResNet style 1D convolutional block without FiLM modulation."""
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int = 3,
+        n_groups: int = 8,
+    ):
+        super().__init__()
+
+        self.conv1 = DiffusionConv1dBlock(in_channels, out_channels, kernel_size, n_groups=n_groups)
+        self.conv2 = DiffusionConv1dBlock(out_channels, out_channels, kernel_size, n_groups=n_groups)
+
+        # A final convolution for dimension matching the residual (if needed).
+        self.residual_conv = (
+            nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+        )
+
+    def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: (B, in_channels, T)
+        Returns:
+            (B, out_channels, T)
+        """
+        out = self.conv1(x)
+        out = self.conv2(out)
+        out = out + self.residual_conv(x)
+        return out
+#%%
+if __name__ == '__main__':
+    action_history_config = Unet1dEncoderConfig(in_channels=7, out_channels=128, history_length=36)
+    print(action_history_config.down_dims)
+    #%%
+    action_history_encoder = Unet1dEncoder(action_history_config)
+    #%%
+    # print the num params and approx size of the model
+    print(f"Number of parameters: {sum(p.numel() for p in action_history_encoder.parameters())}")
+    print(f"Approx size of model: {sum(p.numel() for p in action_history_encoder.parameters()) * 4 / 1024 / 1024:.2f} MB")
+    #%%
+    dummy_action_history = torch.randn(2, 2, 36, 7)
+    dummy_output = action_history_encoder(dummy_action_history)
+
+# %%

@@ -17,6 +17,60 @@
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 from torch import nn
+import math
+@dataclass
+class Unet1dEncoderConfig:
+    """Configuration class for Unet1d.
+
+    Args:
+        in_channels: Number of input channels.
+        out_channels: Number of output channels.
+        down_dims: Feature dimension for each stage of temporal downsampling in the Unet.
+        kernel_size: The convolutional kernel size of the Unet.
+        n_groups: Number of groups used in the group norm of the Unet's convolutional blocks.
+        use_film_scale_modulation: FiLM (https://arxiv.org/abs/1709.07871) is used for the Unet conditioning.
+            Bias modulation is used be default, while this parameter indicates whether to also use scale
+            modulation.
+        diffusion_step_embed_dim: The Unet is conditioned on the diffusion timestep via a small non-linear
+            network. This is the output dimension of that network, i.e., the embedding dimension.
+    """
+
+    in_channels: int
+    out_channels: int
+    # down_dims: tuple[int, ...] = (16, 32, 64)
+    history_length: int = 8
+    kernel_size: int = 5
+    n_groups: int = 8
+
+    # downsampling
+    downsample_kernel_size: int = 5 #3
+    downsample_stride: int = 3 #2
+    downsample_padding: int = 1
+
+    @classmethod
+    def from_dict(cls, d):
+        return cls(**d)
+    
+    def __post_init__(self):
+        """Input validation (not exhaustive)."""
+        if self.kernel_size % 2 == 0:
+            raise ValueError("`kernel_size` must be an odd number. Got {self.kernel_size}.")
+        assert self.history_length % 2 == 0, "history_length must be even."
+
+        # determine down dims based on history length to attain a resolution of 1. 
+        # Assume kernel size is 3, stride is 2 and padding is 1 such that the resolution is halved at each layer.
+        curr_history_length = self.history_length
+        curr_down_dim = curr_history_length
+        # make sure the down dim is divisible by number of groups
+        curr_down_dim = math.floor(curr_down_dim/self.n_groups) * self.n_groups
+        down_dims = []
+        while curr_history_length > 1:
+            curr_history_length = math.floor((curr_history_length + (2*self.downsample_padding) - (self.downsample_kernel_size - 1) - 1)/self.downsample_stride + 1)
+            curr_down_dim *= 2
+            down_dims.append(curr_down_dim)
+        assert curr_history_length == 1, "history_length must be such that the resolution is 1."
+        
+        self.down_dims = tuple(down_dims)
 
 @dataclass
 class DiffusionConfig:
@@ -138,6 +192,8 @@ class DiffusionConfig:
         {"_target_": "torchaug.transforms.RandomAffine", "degrees": (-5, 5), "translate": (0.05, 0.05)},
         {"_target_": "torchaug.transforms.ColorJitter", "brightness": 0.3, "contrast": 0.4, "saturation": 0.5, "hue": 0.08},
     ])
+    # Resnet 1d encoder for action history
+    action_history_encoder_config: Optional[Unet1dEncoderConfig] = None
 
     # Unet.
     down_dims: tuple[int, ...] = (512, 1024, 2048)
@@ -171,6 +227,16 @@ class DiffusionConfig:
             raise ValueError(
                 f"`vision_backbone` must be one of the ResNet variants. Got {self.vision_backbone}."
             )
+        
+        if "observation.action_history" in self.input_shapes:
+            assert self.action_history_encoder_config is not None, "action_history_encoder_config must be provided if action history is used."
+            # self.action_history_encoder_config = Unet1dEncoderConfig(
+            #     in_channels=self.input_shapes["observation.action_history"][0],
+            #     out_channels=128,
+            #     history_length=self.n_action_steps,
+            #     kernel_size=self.kernel_size,
+            #     n_groups=self.n_groups,
+            # )
 
         image_keys = {k for k in self.input_shapes if k.startswith("observation.image")}
 
