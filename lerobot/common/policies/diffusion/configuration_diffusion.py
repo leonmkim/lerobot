@@ -56,7 +56,6 @@ class Unet1dEncoderConfig:
         """Input validation (not exhaustive)."""
         if self.kernel_size % 2 == 0:
             raise ValueError("`kernel_size` must be an odd number. Got {self.kernel_size}.")
-        assert self.history_length % 2 == 0, "history_length must be even."
 
         # choose n_groups based on in channels, such that channels per group is close to 16
         self.n_groups = math.ceil(self.in_channels/16)
