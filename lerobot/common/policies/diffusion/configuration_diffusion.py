@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 from torch import nn
 import math
+
 @dataclass
 class Unet1dEncoderConfig:
     """Configuration class for Unet1d.
@@ -76,7 +77,11 @@ class Unet1dEncoderConfig:
         assert curr_history_length == 1, "history_length must be such that the resolution is 1."
         
         self.down_dims = tuple(down_dims)
-
+    
+    @property
+    def features_name_dir(self):
+        return f"hst{self.history_length}_out{self.out_channels}_dwnkrnl{self.downsample_kernel_size}_dwnstrd{self.downsample_stride}_dwnpd{self.downsample_padding}"
+    
 @dataclass
 class DiffusionConfig:
     """Configuration class for DiffusionPolicy.
@@ -206,6 +211,7 @@ class DiffusionConfig:
     n_groups: int = 8
     diffusion_step_embed_dim: int = 128
     use_film_scale_modulation: bool = True
+
     # Noise scheduler.
     noise_scheduler_type: str = "DDIM" # for real world, use "DDIM" and set num_inference_steps low
     num_train_timesteps: int = 100

@@ -975,6 +975,7 @@ class Unet1dEncoder(nn.Module):
         assert x.shape[-2] == 1, f"Expected timesteps to be downsampled to 1, got {x.shape[-2]}"
         x = x.squeeze(-2)
         return x # (B, S, output_dim)
+    
 
 class ResnetBlock1d(nn.Module):
     """ResNet style 1D convolutional block without FiLM modulation."""
