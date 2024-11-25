@@ -36,8 +36,8 @@ class Unet1dEncoderConfig:
             network. This is the output dimension of that network, i.e., the embedding dimension.
     """
 
-    in_channels: int
-    out_channels: int
+    in_channels: int # dim of actions
+    out_channels: int # dim of latent encoding of action history
     # down_dims: tuple[int, ...] = (16, 32, 64)
     history_length: int = 8
     kernel_size: int = 5
