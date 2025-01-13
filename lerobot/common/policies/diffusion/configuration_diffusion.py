@@ -193,6 +193,9 @@ class DiffusionConfig:
     vision_backbone: str = "resnet18"
     # crop_shape: tuple[int, int] | None = (84, 84)
     # crop_is_random: bool = True
+    # top, left, height, width of crop
+    crop_distractors_tlhw: tuple[int,int,int,int] | None = None
+
     pretrained_backbone_weights: str | None = None
     use_group_norm: bool = True
     spatial_softmax_num_keypoints: int = 32
@@ -255,6 +258,30 @@ class DiffusionConfig:
             raise ValueError("You must provide at least one image or the environment state among the inputs.")
 
         if len(image_keys) > 0:
+            # Not going to enforce this as we set the possibly smaller resized image shape as the input shape, 
+            # without resizing the crop params which I later do in the higher level config file
+            
+            # if self.crop_distractors_tlhw is not None:
+            #     for image_key in image_keys:
+            #         if (
+            #             self.crop_distractors_tlhw[2] > self.input_shapes[image_key][1]
+            #             or self.crop_distractors_tlhw[3] > self.input_shapes[image_key][2]
+            #         ):
+            #             raise ValueError(
+            #                 f"`crop_distractors_tlhw` should fit within `input_shapes[{image_key}]`. Got {self.crop_distractors_tlhw} "
+            #                 f"for `crop_distractors_tlhw` and {self.input_shapes[image_key]} for "
+            #                 "`input_shapes[{image_key}]`."
+            #             )
+            #         elif (
+            #             self.crop_distractors_tlhw[0] < 0 or self.crop_distractors_tlhw[0] > self.input_shapes[image_key][1]
+            #             or self.crop_distractors_tlhw[1] < 0 or self.crop_distractors_tlhw[1] > self.input_shapes[image_key][2]
+            #         ):
+            #             raise ValueError(
+            #                 f"`crop_distractors_tlhw` should fit within `input_shapes[{image_key}]`. Got {self.crop_distractors_tlhw} "
+            #                 f"for `crop_distractors_tlhw` and {self.input_shapes[image_key]} for "
+            #                 "`input_shapes[{image_key}]`."
+            #             )
+
             # if self.crop_shape is not None:
             #     for image_key in image_keys:
             #         if (

@@ -654,7 +654,6 @@ def _replace_submodules(
     assert not any(predicate(m) for _, m in root_module.named_modules(remove_duplicate=True))
     return root_module
 
-
 class DiffusionSinusoidalPosEmb(nn.Module):
     """1D sinusoidal positional embeddings as in Attention is All You Need."""
 
