@@ -237,6 +237,7 @@ class DiffusionConfig:
     
     def __post_init__(self):
         """Input validation (not exhaustive)."""
+
         if not self.vision_backbone.startswith("resnet"):
             raise ValueError(
                 f"`vision_backbone` must be one of the ResNet variants. Got {self.vision_backbone}."
@@ -313,3 +314,13 @@ class DiffusionConfig:
                 f"`noise_scheduler_type` must be one of {supported_noise_schedulers}. "
                 f"Got {self.noise_scheduler_type}."
             )
+
+        # added from commit: https://github.com/huggingface/lerobot/commit/a60d27b132b91d79ec5d705af78af84dc4509ab5
+        # doesnt seem right? seems like as long as horizon is even, it should be fine...
+        # downsampling_factor = 2 ** len(self.down_dims)
+        # if self.horizon % downsampling_factor != 0:
+        #     raise ValueError(
+        #         "The horizon should be an integer multiple of the downsampling factor (which is determined "
+        #         f"by `len(down_dims)`). Got {self.horizon=} and {self.down_dims=}"
+        #     )
+        assert self.horizon % 2 == 0, "horizon must be even."

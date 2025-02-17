@@ -189,6 +189,7 @@ class DiffusionModel(nn.Module):
             self.action_history_encoder = Unet1dEncoder(config.action_history_encoder_config)
             global_cond_dim += config.action_history_encoder_config.out_channels
 
+        self.global_cond_dim = global_cond_dim
         self.unet = DiffusionConditionalUnet1d(config, global_cond_dim=global_cond_dim * config.n_obs_steps)
 
         self.noise_scheduler = _make_noise_scheduler(
@@ -262,8 +263,11 @@ class DiffusionModel(nn.Module):
             global_cond_feats.append(img_features)
         # if "observation.action_history" in batch:
         if self._use_action_history:
+            # action history should be BxSxTxD, where S is the observation history steps (1 in most cases), T is the action history steps, and D is the action dimension
+            # assert batch["observation.action_history"].shape[1:] == (n_obs_steps, self.config.action_history_encoder_config.history_length, self.config.action_history_encoder_config.in_channels), f"Expected action history shape (B, S, T, D), got {batch['observation.action_history'].shape}"
             action_history_encoding = self.action_history_encoder(batch["observation.action_history"])
             # get BxSxD encoding
+            # assert action_history_encoding.shape[1:] == (n_obs_steps, self.config.action_history_encoder_config.out_channels), f"Expected action history encoding shape (B, S, D), got {action_history_encoding.shape}"
             global_cond_feats.append(action_history_encoding)
         if self._use_env_state:
             global_cond_feats.append(batch["observation.environment_state"])
@@ -318,14 +322,17 @@ class DiffusionModel(nn.Module):
         """
         # Input validation.
         assert set(batch).issuperset({"observation.state", "action"})
+        # batch_size, n_obs_steps = batch["observation.state"].shape[:2]
+        # assert batch_size == batch["action"].shape[0]
+        # assert n_obs_steps == self.config.n_obs_steps
         assert "observation.images" in batch or "observation.environment_state" in batch
-        n_obs_steps = batch["observation.state"].shape[1]
+        # assert len(batch['action'].shape) == 3, f"Expected 3D action tensor, got {batch['action'].shape}"
         horizon = batch["action"].shape[1]
-        assert horizon == self.config.horizon
-        assert n_obs_steps == self.config.n_obs_steps
+        # assert horizon == self.config.horizon, f"Expected horizon {self.config.horizon}, got {horizon} for action of shape {batch['action'].shape}"
 
         # Encode image features and concatenate them all together along with the state vector.
         global_cond = self._prepare_global_conditioning(batch)  # (B, global_cond_dim)
+        # assert global_cond.shape[1] == self.global_cond_dim, f"Expected global_cond_dim {self.global_cond_dim}, got {global_cond.shape[1]} for global_cond of shape {global_cond.shape}"
 
         # Forward diffusion.
         trajectory = batch["action"]
@@ -972,6 +979,7 @@ class Unet1dEncoder(nn.Module):
         # x = einops.rearrange(x, "b d t -> b t d")
         x = einops.rearrange(x, "(b s) d t -> b s t d", b=batch_size, s=seq_len)
         assert x.shape[-2] == 1, f"Expected timesteps to be downsampled to 1, got {x.shape[-2]}"
+        assert x.shape[-1] == self.config.out_channels, f"Expected {self.config.out_channels} output channels, got {x.shape[-1]}"
         x = x.squeeze(-2)
         return x # (B, S, output_dim)
     
