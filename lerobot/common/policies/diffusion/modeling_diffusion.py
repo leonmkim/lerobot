@@ -275,7 +275,7 @@ class DiffusionModel(nn.Module):
         # Concatenate features then flatten to (B, global_cond_dim).
         return torch.cat(global_cond_feats, dim=-1).flatten(start_dim=1)
 
-    def generate_actions(self, batch: dict[str, Tensor]) -> Tensor:
+    def generate_actions(self, batch: dict[str, Tensor], generator: Optional[torch.Generator] = None) -> Tensor:
         """
         This function expects `batch` to have:
         {
@@ -293,7 +293,7 @@ class DiffusionModel(nn.Module):
         global_cond = self._prepare_global_conditioning(batch)  # (B, global_cond_dim)
 
         # run sampling
-        actions = self.conditional_sample(batch_size, global_cond=global_cond)
+        actions = self.conditional_sample(batch_size, global_cond=global_cond, generator=generator)
 
         # Extract `n_action_steps` steps worth of actions (from the current observation).
         if self.config.start_horizon_at_current_step:
@@ -1017,6 +1017,45 @@ class ResnetBlock1d(nn.Module):
         return out
 #%%
 if __name__ == '__main__':
+    from lerobot.common.logger import set_global_random_state, get_global_random_state
+    import os, sys
+    from pathlib import Path
+    # add the project root to the python path
+    path_to_fish = Path('~/fish_leon/FISH').expanduser()
+    sys.path.append(str(path_to_fish))
+    from utils import set_seed_everywhere
+    #%%
+    set_seed_everywhere(0) # controls the global rng state which is used if generator is not provided
+    #%%
+    # generator = torch.Generator()
+    # generator.manual_seed(10)
+    # print(generator.get_state()[:20])
+    generator = None
+    # Sample prior.
+
+    #%%
+    for _ in range(5):
+        sample = torch.randn(
+            size=(1,),
+            dtype=torch.float,
+            device='cpu',
+            generator=generator,
+        )
+        print(sample)
+
+    # self.noise_scheduler.set_timesteps(self.num_inference_steps)
+
+    # for t in self.noise_scheduler.timesteps:
+    #     # Predict model output.
+    #     model_output = self.unet(
+    #         sample,
+    #         torch.full(sample.shape[:1], t, dtype=torch.long, device=sample.device),
+    #         global_cond=global_cond,
+    #     )
+    #     # Compute previous image: x_t -> x_t-1
+    #     sample = self.noise_scheduler.step(model_output, t, sample, generator=generator).prev_sample
+
+    #%%
     downsample_kernel_size = 3
     downsample_stride = 2
     downsample_padding = 1
