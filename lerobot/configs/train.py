@@ -35,6 +35,7 @@ TRAIN_CONFIG_NAME = "train_config.json"
 @dataclass
 class TrainPipelineConfig(HubMixin):
     dataset: DatasetConfig
+    valid_dataset: DatasetConfig
     env: envs.EnvConfig | None = None
     policy: PreTrainedConfig | None = None
     # Set `dir` to where you would like to save all of the run outputs. If you run another training session
@@ -54,6 +55,8 @@ class TrainPipelineConfig(HubMixin):
     batch_size: int = 8
     steps: int = 100_000
     eval_freq: int = 20_000
+    inference_on_training_freq: int = 5_000
+    inference_on_validation_freq: int = 5_000
     log_freq: int = 200
     save_checkpoint: bool = True
     # Checkpoint is saved every `save_freq` training iterations and after the last training step.

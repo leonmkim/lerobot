@@ -109,7 +109,7 @@ class WandBLogger:
         self._wandb.log_artifact(artifact)
 
     def log_dict(self, d: dict, step: int, mode: str = "train"):
-        if mode not in {"train", "eval"}:
+        if mode not in {"train", "valid", "eval"}:
             raise ValueError(mode)
 
         for k, v in d.items():
@@ -121,7 +121,7 @@ class WandBLogger:
             self._wandb.log({f"{mode}/{k}": v}, step=step)
 
     def log_video(self, video_path: str, step: int, mode: str = "train"):
-        if mode not in {"train", "eval"}:
+        if mode not in {"train", "valid", "eval"}:
             raise ValueError(mode)
 
         wandb_video = self._wandb.Video(video_path, fps=self.env_fps, format="mp4")

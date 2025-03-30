@@ -136,12 +136,29 @@ class DiffusionPolicy(PreTrainedPolicy):
             actions = self.diffusion.generate_actions(batch)
 
             # TODO(rcadene): make above methods return output dictionary?
-            actions = self.unnormalize_outputs({"action": actions})["action"]
+            actions = self.unnormalize_outputs({"action": actions})["action"] 
 
             self._queues["action"].extend(actions.transpose(0, 1))
 
         action = self._queues["action"].popleft()
         return action
+
+    def get_action_plan(self, batch: dict[str, Tensor]) -> Tensor:
+        batch = self.normalize_inputs(batch)
+        if self.config.image_features:
+            batch = dict(batch)  # shallow copy so that adding a key doesn't modify the original
+            batch["observation.images"] = torch.stack(
+                [batch[key] for key in self.config.image_features], dim=-4
+            )
+
+        # stack n latest observations from the queue
+        normalized_actions = self.diffusion.generate_actions(batch, to_execute_only=False)
+
+        # TODO(rcadene): make above methods return output dictionary?
+        unnormalized_actions = self.unnormalize_outputs({"action": normalized_actions})["action"] # B x horizon x action_dim
+
+        return normalized_actions, unnormalized_actions
+    
 
     def forward(self, batch: dict[str, Tensor]) -> tuple[Tensor, None]:
         """Run the batch through the model and compute the loss for training or validation."""
@@ -274,7 +291,7 @@ class DiffusionModel(nn.Module):
         # Concatenate features then flatten to (B, global_cond_dim).
         return torch.cat(global_cond_feats, dim=-1).flatten(start_dim=1)
 
-    def generate_actions(self, batch: dict[str, Tensor]) -> Tensor:
+    def generate_actions(self, batch: dict[str, Tensor], to_execute_only=True) -> Tensor:
         """
         This function expects `batch` to have:
         {
@@ -295,9 +312,10 @@ class DiffusionModel(nn.Module):
         actions = self.conditional_sample(batch_size, global_cond=global_cond)
 
         # Extract `n_action_steps` steps worth of actions (from the current observation).
-        start = n_obs_steps - 1
-        end = start + self.config.n_action_steps
-        actions = actions[:, start:end]
+        if to_execute_only:
+            start = n_obs_steps - 1
+            end = start + self.config.n_action_steps
+            actions = actions[:, start:end]
 
         return actions
 
