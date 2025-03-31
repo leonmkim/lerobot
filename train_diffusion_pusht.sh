@@ -74,20 +74,23 @@ fi
 SEED=100000
 BATCH_SIZE=64
 
-DROP_N_LAST_FRAMES=7 # default
-# DROP_N_LAST_FRAMES=0
+# DROP_N_LAST_FRAMES=7 # default
+DROP_N_LAST_FRAMES=0
 
 DOWN_DIMS="[512,1024,2048]" #default
 # DOWN_DIMS="[256,512,1024]" # small
 # DOWN_DIMS="[64,128,256]" # small
 
-# NOISE_SCHEDULER_TYPE="DDPM" # default
-NOISE_SCHEDULER_TYPE="DDIM" 
+NOISE_SCHEDULER_TYPE="DDPM" # default
+# NOISE_SCHEDULER_TYPE="DDIM" 
 
-# NUM_TRAIN_STEPS=100 #default
-NUM_TRAIN_STEPS=50
+NUM_TRAIN_STEPS=100 #default
+# NUM_TRAIN_STEPS=50
 
-REQUEUE_RUN_ID=""
+OPTIMIZER="adam" # default
+# OPTIMIZER="adamw" 
+
+REQUEUE_RUN_ID="53846_0"
 NOTES="_"
 RUN_ID="null"
 RESUME=false
@@ -163,6 +166,7 @@ srun python lerobot/scripts/train_dp_with_added_metrics.py \
 --policy.drop_n_last_frames=${DROP_N_LAST_FRAMES} \
 --policy.down_dims=${DOWN_DIMS} \
 --policy.noise_scheduler_type=${NOISE_SCHEDULER_TYPE} \
+--policy.optimizer=${OPTIMIZER} \
 --steps=${TRAIN_STEPS} \
 --wandb.enable=true \
 --wandb.entity=${WANDB_ENTITY} \
