@@ -16,7 +16,7 @@
 # limitations under the License.
 from dataclasses import dataclass, field
 
-from lerobot.common.optim.optimizers import AdamConfig
+from lerobot.common.optim.optimizers import AdamConfig, AdamWConfig
 from lerobot.common.optim.schedulers import DiffuserSchedulerConfig
 from lerobot.configs.policies import PreTrainedConfig
 from lerobot.configs.types import NormalizationMode
@@ -159,8 +159,12 @@ class DiffusionConfig(PreTrainedConfig):
     scheduler_name: str = "cosine"
     scheduler_warmup_steps: int = 500
 
+    optimizer: str = "adam"
+
     def __post_init__(self):
         super().__post_init__()
+
+        assert self.optimizer in ["adam", "adamw"], f"Unsupported optimizer: {self.optimizer}."
 
         """Input validation (not exhaustive)."""
         if not self.vision_backbone.startswith("resnet"):
@@ -189,13 +193,23 @@ class DiffusionConfig(PreTrainedConfig):
                 f"by `len(down_dims)`). Got {self.horizon=} and {self.down_dims=}"
             )
 
-    def get_optimizer_preset(self) -> AdamConfig:
-        return AdamConfig(
-            lr=self.optimizer_lr,
-            betas=self.optimizer_betas,
-            eps=self.optimizer_eps,
-            weight_decay=self.optimizer_weight_decay,
-        )
+    def get_optimizer_preset(self) -> AdamConfig | AdamWConfig:
+        if self.optimizer == "adam":
+            return AdamConfig(
+                lr=self.optimizer_lr,
+                betas=self.optimizer_betas,
+                eps=self.optimizer_eps,
+                weight_decay=self.optimizer_weight_decay,
+            )
+        elif self.optimizer == "adamw":
+            return AdamWConfig(
+                lr=self.optimizer_lr,
+                betas=self.optimizer_betas,
+                eps=self.optimizer_eps,
+                weight_decay=self.optimizer_weight_decay,
+            )
+        else:
+            raise ValueError(f"Unsupported optimizer: {self.optimizer}. Supported optimizers are adam and adamw.")
 
     def get_scheduler_preset(self) -> DiffuserSchedulerConfig:
         return DiffuserSchedulerConfig(
