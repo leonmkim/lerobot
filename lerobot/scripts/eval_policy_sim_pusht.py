@@ -54,11 +54,14 @@ eval_policy_sim_logger = logging.getLogger(__name__)
 eval_policy_sim_logger.info("finished importing libraries")
 
 #%%
-def get_coverage_from_info(info):
-    coverage = info.get('coverage', None)
-    if coverage is None:
-        coverage = info['final_info'][0]['coverage']
-    return float(coverage)
+def get_key_from_info(info, key='coverage'):
+    if 'final_info' in info:
+        value = info['final_info'][0][key]
+    elif key in info:
+        value = info[key]
+    else:
+        raise ValueError(f"No {key} found in info")
+    return float(value)
 
 def recursive_json_serialize_dict(item):
     """
@@ -146,8 +149,10 @@ class DiffusionPolicyLerobotPushTWrapper:
     num_envs: int,
     env_device: str = 'cpu',
     policy = None, 
+    use_select_action: bool = False,
     ):
         self.running_locally = os.uname().nodename == 'MAGI-SYSTEM'
+        self.use_select_action = use_select_action
 
         # >>>>>>>>>> make diffusion policy using omegaconf
         self.cfg = cfg
@@ -175,7 +180,7 @@ class DiffusionPolicyLerobotPushTWrapper:
         self.elapsed_steps = 0
 
         self.n_obs_steps = self.policy.config.n_obs_steps
-        if self.n_obs_steps > 1:
+        if self.n_obs_steps > 1 and not self.use_select_action:
             # then set up queues for the observations
             # HACK JUST HARDCODING THE HEIGHT AND WIDTH FOR NOW
             self.rgb_queue = torch.zeros(num_envs, self.n_obs_steps, 3, 96, 96, dtype=torch.float32).to(self.device)
@@ -194,10 +199,12 @@ class DiffusionPolicyLerobotPushTWrapper:
         # lerobot_batch['observation.image'] = torch.as_tensor(observations['pixels'], device=self.config.device).float().unsqueeze(0)
         # BXHXWX3
         
-        current_rgb = einops.rearrange(torch.from_numpy(obs['pixels']).float().unsqueeze(1), 'b s h w c -> b s c h w').to(self.device)
+        current_rgb = einops.rearrange(torch.from_numpy(obs['pixels']).float(), 'b h w c -> b c h w').to(self.device)
+        assert current_rgb.shape == (self.num_envs, 3, 96, 96), f"current_rgb should be {(self.num_envs, 3, 96, 96)}, but got {current_rgb.shape}"
         # then need to mimic the normalized rgb images that the lerobot dataset uses
         current_rgb = current_rgb / 255.0
-        if self.n_obs_steps > 1:
+        if self.n_obs_steps > 1 and not self.use_select_action:
+            current_rgb = current_rgb.unsqueeze(1) # BxCxHxW -> BxSxCxHxW
             # later indices are more recent
             if self.elapsed_steps == 0:
                 # then need to fill the queue with the current rgb
@@ -205,43 +212,56 @@ class DiffusionPolicyLerobotPushTWrapper:
             else:
                 self.rgb_queue = torch.cat([self.rgb_queue[:, 1:], current_rgb], dim=1)
             lerobot_batch[self.lerobot_rgb_batch_key] = self.rgb_queue
+            assert lerobot_batch[self.lerobot_rgb_batch_key].shape == (self.num_envs, self.n_obs_steps, 3, 96, 96), f"lerobot_batch[self.lerobot_rgb_batch_key] should be {(self.num_envs, self.n_obs_steps, 3, 96, 96)}, but got {lerobot_batch[self.lerobot_rgb_batch_key].shape}"
         else:
             lerobot_batch[self.lerobot_rgb_batch_key] = current_rgb
 
         # lerobot_batch['observation.state'] = torch.as_tensor(observations['features'], device=self.config.device).float().unsqueeze(0) # add batch dimension
-        current_agent_pos = torch.from_numpy(obs['agent_pos']).unsqueeze(1).float().to(self.device) # bx2 -> bxsx2
-        if self.n_obs_steps > 1:
+        current_agent_pos = torch.from_numpy(obs['agent_pos']).float().to(self.device) 
+        if self.n_obs_steps > 1 and not self.use_select_action:
+            current_agent_pos = current_agent_pos.unsqueeze(1) # bx2 -> bxsx2
             if self.elapsed_steps == 0:
                 self.agent_pos_queue = torch.cat([current_agent_pos]*self.n_obs_steps, dim=1)
             else:
                 self.agent_pos_queue = torch.cat([self.agent_pos_queue[:, 1:], current_agent_pos], dim=1)
             lerobot_batch['observation.state'] = self.agent_pos_queue
+            assert lerobot_batch['observation.state'].shape == (self.num_envs, self.n_obs_steps, 2), f"lerobot_batch['observation.state'] should be {(self.num_envs, self.n_obs_steps, 2)}, but got {lerobot_batch['observation.state'].shape}"
         else:
             lerobot_batch['observation.state'] = current_agent_pos
         return lerobot_batch
     
     def reset(self):
-        self.current_action_plan = None
-        if self.n_obs_steps > 1:
-            self.rgb_queue = torch.zeros(self.num_envs, self.n_obs_steps, 3, 96, 96, dtype=torch.float32).to(self.device)
-            self.depth_queue = torch.zeros(self.num_envs, self.n_obs_steps, 2, dtype=torch.float32).to(self.device)
+        if not self.use_select_action:
+            self.current_action_plan = None
+            if self.n_obs_steps > 1:
+                self.rgb_queue = torch.zeros(self.num_envs, self.n_obs_steps, 3, 96, 96, dtype=torch.float32).to(self.device)
+                self.depth_queue = torch.zeros(self.num_envs, self.n_obs_steps, 2, dtype=torch.float32).to(self.device)
         self.elapsed_steps = 0
         self.policy.reset()
             
     def act(self, maniskill_obs):
-        if self.elapsed_steps % self.replan_in_n_steps == 0:
+        if not self.use_select_action:
             lerobot_obs = self.pusht_obs_to_lerobot_obs(maniskill_obs)
-            _, action_plan = self.policy.get_action_plan(lerobot_obs) # BxTxA
-            if self.n_obs_steps > 1:
-                action_plan = action_plan[:, self.n_obs_steps-1:] # remove the first n_obs_steps-1 steps
-            assert action_plan.shape == (self.num_envs, self.action_plan_horizon, self.action_dim), f"action_plan should be {(self.num_envs, self.action_plan_horizon, self.action_dim)}, but got {action_plan.shape}"
-            self.current_action_plan = action_plan
-        assert self.current_action_plan is not None, "current_action_plan is None"
-        # get the action to be executed from the current_action_plan
-        action_to_execute = self.current_action_plan[:, self.elapsed_steps % self.replan_in_n_steps]
-        visualized_plan = self.current_action_plan[:, self.elapsed_steps % self.replan_in_n_steps:]
+            if self.elapsed_steps % self.replan_in_n_steps == 0:
+                _, action_plan = self.policy.get_action_plan(lerobot_obs) # BxTxA
+                if self.n_obs_steps > 1:
+                    action_plan = action_plan[:, self.n_obs_steps-1:] # remove the first n_obs_steps-1 steps
+                assert action_plan.shape == (self.num_envs, self.action_plan_horizon, self.action_dim), f"action_plan should be {(self.num_envs, self.action_plan_horizon, self.action_dim)}, but got {action_plan.shape}"
+                self.current_action_plan = action_plan
+            assert self.current_action_plan is not None, "current_action_plan is None"
+            # get the action to be executed from the current_action_plan
+            action_to_execute = self.current_action_plan[:, self.elapsed_steps % self.replan_in_n_steps]
+            visualized_plan = self.current_action_plan[:, self.elapsed_steps % self.replan_in_n_steps:]
+        else:
+            lerobot_obs = self.pusht_obs_to_lerobot_obs(maniskill_obs)
+            action_to_execute, visualized_plan = self.policy.select_action_with_action_plan(lerobot_obs) # BxA, TxBxA
+
+            visualized_plan = einops.rearrange(visualized_plan, 't b a -> b t a')
+            # return action.to(self.env_device), action_plan
+        
         self.elapsed_steps += 1
         return action_to_execute.to(self.env_device), visualized_plan
+
     
 # with initialize(version_base=None, config_path="cfgs", job_name="test_app"):
 #     omegaconf_cfg = compose(config_name="config_eval", overrides=["eval_cfg=sim", "agent=diffusion", "suite=frankagym", "suite/frankagym_task@_global_=insertion", "use_wandb=false"])
@@ -251,6 +271,7 @@ from lerobot.common.envs.factory import make_env
 def main(omegaconf_cfg):
     record_episode = True
     run_at_realtime = False
+    use_lerobot_select_action = False
 
     if omegaconf_cfg.eval_cfg.universal_unseen_env_seed_start is not None:
         omegaconf_cfg.eval_cfg.output_dir = Path(omegaconf_cfg.eval_cfg.output_dir) / f"seed_start_{omegaconf_cfg.eval_cfg.universal_unseen_env_seed_start}_seed_end_{omegaconf_cfg.eval_cfg.universal_unseen_env_seed_start + omegaconf_cfg.eval_cfg.num_unseen_eval_envs}"
@@ -270,6 +291,7 @@ def main(omegaconf_cfg):
         sim_control_freq=omegaconf_cfg.env.fps,
         num_envs=env.num_envs,
         env_device='cpu',
+        use_select_action=use_lerobot_select_action,
     )
     eval_policy_sim_logger.info("made the policy")
 
@@ -326,21 +348,21 @@ def main(omegaconf_cfg):
                 num_trajs += 1
                 break
             # elif key == ord('c'):
-            elif info['is_success']: # policy succeeded
+            elif get_key_from_info(info, key='is_success'): # policy succeeded
                 num_trajs += 1
                 episode_success.append(True)
                 
-                logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_coverage_from_info(info), is_success=info['is_success']))
+                logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_key_from_info(info), is_success=get_key_from_info(info, key='is_success')))
                 eval_results['episodes'].append(dict(seed=int(seed), seed_desc=seed_desc, info=logged_info_dict))
                 obs, info = env.reset(seed=seed)
                 diffusion_policy.reset()
                 action, action_plan = diffusion_policy.act(obs)
                 render_handler.render(env, action_plan=action_plan, action=action)
                 render_handler.write_video()
-            elif not info['is_success']: # policy failed
+            elif not get_key_from_info(info, key='is_success'): # policy failed
                 num_trajs += 1
                 episode_success.append(False)
-                logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_coverage_from_info(info), is_success=info['is_success']))
+                logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_key_from_info(info), is_success=get_key_from_info(info, key='is_success')))
                 eval_results['episodes'].append(dict(seed=int(seed), seed_desc=seed_desc, info=logged_info_dict))
                 obs, info = env.reset(seed=seed)
                 diffusion_policy.reset()
@@ -386,13 +408,13 @@ def main(omegaconf_cfg):
                     time.sleep(time_to_sleep)
             if diffusion_policy.elapsed_steps % 100 == 0:
                 print(f"realtime_factor: {elapsed_simtime/elapsed_realtime} | elapsed steps: {diffusion_policy.elapsed_steps} | elapsed rt {elapsed_realtime} | elapsed simt {elapsed_simtime}")
-                print(f"success: {info['is_success']} | coverage: {get_coverage_from_info(info)}")
+                print(f"success: {get_key_from_info(info, key='is_success')} | coverage: {get_key_from_info(info)}")
             
             key = render_handler.check_user_input()
             # if render_mode == 'human':
             if key == ord('q'):
                 break
-            elif info['is_success']:
+            elif get_key_from_info(info, key='is_success'):
                 print("Policy succeeded, stopping episode")
                 break
             # elif viewer.window.key_press('c'): 
@@ -402,10 +424,10 @@ def main(omegaconf_cfg):
             #     key = ord('r')
             #     break
         
-    if info['is_success']: # policy succeeded
+    if get_key_from_info(info, key='is_success'): # policy succeeded
         num_trajs += 1
         episode_success.append(True)
-        logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_coverage_from_info(info), is_success=info['is_success']))
+        logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_key_from_info(info), is_success=get_key_from_info(info, key='is_success')))
         eval_results['episodes'].append(dict(seed=int(seed), seed_desc=seed_desc, info=logged_info_dict))
         env.reset(seed=seed)
         diffusion_policy.reset()
@@ -413,7 +435,7 @@ def main(omegaconf_cfg):
     elif not info['is_success']: # policy failed
         num_trajs += 1
         episode_success.append(False)
-        logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_coverage_from_info(info), is_success=info['is_success']))
+        logged_info_dict = recursive_json_serialize_dict(dict(coverage=get_key_from_info(info), is_success=get_key_from_info(info, key='is_success')))
         eval_results['episodes'].append(dict(seed=int(seed), seed_desc=seed_desc, info=logged_info_dict))
         env.reset(seed=seed)
         diffusion_policy.reset()
