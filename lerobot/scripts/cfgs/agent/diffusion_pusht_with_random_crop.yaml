@@ -1,0 +1,206 @@
+# @package agent
+_target_: agent.diffusion_policy.DiffusionPolicyAgent
+name: diffusion_policy
+load_checkpoint: ${eval}
+device: ${device}
+n_obs_steps: ${.config.policy_cfg.n_obs_steps}
+### suite
+suite_name: ${suite.name}
+obs_type: ${obs_type}
+enable_arm: ${eval}
+enable_camera: ${eval}
+### logger
+use_tb: ${use_tb}
+desired_image_shape: [3,96,96]
+orig_cam_shape: [3,96,96]
+# Input / output structure.
+actions_prenormalized: false
+config:
+  _target_: agent.diffusion_policy.DiffusionPolicyAgentConfig
+  compile: false
+  device: ${device}
+  cam_resize_shape: ${agent.desired_image_shape}
+  orig_cam_shape: ${agent.orig_cam_shape}
+  policy_frequency: ${policy_frequency}
+  interpolation_frequency: ${interpolation_frequency}
+  deterministic_actions: false
+  deterministic_actions_seed: 0
+  use_lerobot_dataset: ${use_lerobot_dataset}
+  policy_cfg:
+    _target_: lerobot.common.policies.diffusion.configuration_diffusion.DiffusionConfig
+    n_obs_steps: 2
+    horizon: 16
+    n_action_steps: ${agent.config.policy_cfg.horizon}
+    input_shapes:
+      # TODO(rcadene, alexander-soare): add variables for height and width from the dataset/env?
+      observation.image: ${agent.config.cam_resize_shape} #different from above obs_shape, this is the desired input shape
+      context_observation.image: ${agent.config.cam_resize_shape}
+      # observation.state: ["${env.state_dim}"]
+      # observation.state: [7,]
+      observation.state: [2,] #8 if use gripper
+    output_shapes:
+      action: [2,] #7 if use gripper
+
+    # Normalization / Unnormalization
+    input_normalization_modes:
+      observation.image: mean_std
+      observation.state: min_max
+    output_normalization_modes:
+      action: min_max
+
+    # Architecture / modeling.
+    # Vision backbone.
+    vision_backbone: resnet18
+    crop_distractors_tlhw: null
+    # crop_distractors_tlhw: [32,68,174,174]
+    # crop_shape: [76, 76] # following the original implementation
+    # crop_is_random: True
+    pretrained_backbone_weights: null
+    transforms:
+      - type: RandomCrop # to use the built in random crop
+        ratio: 0.875 # to get 84x84 from 96x96
+      # - _target_: torchaug.transforms.RandomAffine
+      #   degrees: 0
+      #   translate:
+      #     - 0.0625
+      #     - 0.0625
+      #   batch_transform: True # true to randomize over elements in the batch
+      #   num_chunks: -1 # -1 to randomize over elements in the batch
+      #   batch_inplace: True # avoids copy to save memory
+      # - _target_: torchvision.transforms.v2.ColorJitter # from UMI paper
+      # - _target_: torchvision.transforms.RandomPerspective
+      #   distortion_scale: 0.5
+      #   p: 1.0
+      # - _target_: torchvision.transforms.ElasticTransform
+      #   alpha: 50.0
+      #   sigma: 5.0
+      # - _target_: torchvision.transforms.RandomPerspective
+      #   distortion_scale: 0.5
+      #   p: 1.0
+      # - _target_: torchvision.transforms.ElasticTransform
+      #   alpha: 50.0
+      #   sigma: 5.0
+      # - _target_: torchvision.transforms.RandomCrop
+      #   size: 192
+    use_group_norm: True
+    spatial_softmax_num_keypoints: 32
+    # action history unet encoder
+    action_history_encoder_config:
+      _target_: lerobot.common.policies.diffusion.configuration_diffusion.Unet1dEncoderConfig
+      # in_channels: "${agent.config.policy_cfg.input_shapes['observation.action_history'][0]}" # this gives me token recognition error...
+      in_channels: 7
+      out_channels: 32
+      history_length: ${agent.config.policy_cfg.n_action_steps}
+      kernel_size: ${agent.config.policy_cfg.kernel_size}
+      # n_groups: ${agent.config.policy_cfg.n_groups} # n_groups now implicitly chosen to maintain channels per group close to 16
+      downsample_kernel_size: 3 #5
+      downsample_stride: 2 #3
+      downsample_padding: 1 #1
+    # Unet.
+    # down_dims: [512, 1024, 2048]
+    down_dims: [256, 512, 1024] # used in their real tasks
+    #https://github.com/real-stanford/diffusion_policy/blob/main/diffusion_policy/config/train_diffusion_unet_real_hybrid_workspace.yaml#L8
+    # also used in UMI bimanual setup https://github.com/real-stanford/universal_manipulation_interface/blob/298776ce251f33b6b3185a98d6e7d1f9ad49168b/diffusion_policy/config/train_diffusion_unet_umi_bimanual_workspace.yaml#L99
+    kernel_size: 5
+    n_groups: 8
+    diffusion_step_embed_dim: 128
+    use_film_scale_modulation: True
+    # Noise scheduler.
+    noise_scheduler_type: DDIM
+    beta_schedule: squaredcos_cap_v2
+    beta_start: 0.0001
+    beta_end: 0.02
+    prediction_type: epsilon # epsilon / sample
+    clip_sample: True
+    clip_sample_range: 1.0
+
+    num_train_timesteps: 100
+    # Inference
+    num_inference_steps: 100  # if not provided, defaults to `num_train_timesteps`
+
+    # Loss computation
+    do_mask_loss_for_padding: false
+
+    start_horizon_at_current_step: true
+
+  ### training
+  train_cfg:
+    # _target_: agent.diffusion_policy.TrainConfig
+    _target_: utils.TrainConfig
+    lr: 1e-4
+    lr_scheduler: cosine
+    lr_warmup_steps: 500
+    adam_betas: [0.95, 0.999]
+    adam_eps: 1.0e-8
+    adam_weight_decay: 1.0e-6
+    grad_clip_norm: 10
+    offline_steps: ${num_train_frames_diffusion}
+    use_amp: true
+    optimizer: adamw
+
+  ### visual features
+  observation_cfg:
+    _target_: agent.encoder.VisualFeatureSet
+    use_depth: ${use_depth}
+    use_color: ${use_color}
+    mask_input_dict:
+      _target_: agent.encoder.MaskInputDict
+      enable: ${use_masks}
+      representation: ${mask_representation}
+      mask_list: ${mask_list}
+      segmentation_model_name: ${segmentation_model_name}
+    crop_input_config:
+      _target_: agent.encoder.CropInputConfig
+      color_crop_type: ${color_crop_type}
+      depth_crop_type: ${depth_crop_type}
+      segmask_crop_type: ${segmask_crop_type}
+      crop_hw: ${crop_hw}
+      crop_down_offset: ${crop_down_offset}
+      add_crop_binary_mask: ${add_crop_binary_mask}
+      add_coord_conv_map: ${add_coord_conv_map}
+    context_input_config:
+      _target_: agent.encoder.ContextInputConfig
+      use_color: ${use_context_color}
+      use_depth: ${use_context_depth}
+      mask_input_dict:
+        _target_: agent.encoder.MaskInputDict
+        enable: ${use_context_segmask}
+        representation: ${mask_representation}
+        mask_list: ${mask_list}
+        segmentation_model_name: ${segmentation_model_name}
+      crop_input_config:
+        _target_: agent.encoder.CropInputConfig
+        color_crop_type: ${context_color_crop_type}
+        depth_crop_type: ${context_depth_crop_type}
+        segmask_crop_type: ${context_segmask_crop_type}
+        crop_hw: ${crop_hw}
+        crop_down_offset: ${crop_down_offset}
+        add_crop_binary_mask: ${context_add_crop_binary_mask}
+        add_coord_conv_map: ${context_add_coord_conv_map}
+    mask_soft_approx_scheduler_config:
+      _target_: agent.encoder.MaskSoftApproxSchedulerConfig
+      num_steps: 40000
+      initial_value: 10.0
+      final_value: 1000.0
+      interpolation_scheme: constant
+    use_contact_map: ${use_contact_map}
+    use_sdf_maps: ${use_sdf_maps}
+    use_normals_maps: ${use_normals_maps}
+    which_objects: ${which_objects}
+    grasped_dtc_max_value: ${grasped_dtc_max_value}
+    env_dtc_max_value: ${env_dtc_max_value}
+    grasped_normals_mask_max_dtc_value: ${grasped_normals_mask_max_dtc_value}
+    env_normals_mask_max_dtc_value: ${env_normals_mask_max_dtc_value}
+    clamp_dtc: ${clamp_dtc}
+    max_contact_prob: ${max_contact_prob}
+    mask_normals_within_sdf: ${mask_normals_within_sdf}
+    dtc_adaptive_normalization: ${dtc_adaptive_normalization}
+    adaptive_normals_mask: ${adaptive_normals_mask}
+    max_depth: ${max_depth}
+    image_shape: ${agent.desired_image_shape}
+    learnable_contact_preprocess_params: ${learnable_contact_preprocess_params}
+    learning_rate: ${agent.config.train_cfg.lr}
+    weight_decay: 0.0
+    contact_model_name: ${contact_model_name}
+    zero_centered: False # normalize inputs between 0-1
+    crop_distractors_tlhw: ${agent.config.policy_cfg.crop_distractors_tlhw}

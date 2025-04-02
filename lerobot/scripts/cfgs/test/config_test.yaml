@@ -1,0 +1,16 @@
+# @package test
+username: 'leonmkim'
+hostname: 'grasp-login1'
+name_of_expert_demo: '112_240x320_all_twodim_left_to_right_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act'
+root_dir: '~/fish_leon'
+expert_dataset_dirpath: '${test.root_dir}/FISH/expert_demos/${suite.name}/${task_name}/${test.name_of_expert_demo}'
+expert_dataset: '${test.expert_dataset_dirpath}/demos.zarr'
+semantic_demo_grouping_name: 'semantic_demo_grouping.yaml'
+semantic_demo_grouping: '${test.expert_dataset_dirpath}/${test.semantic_demo_grouping_name}'
+include_groups_list: 'all'
+batch_size: 128
+store_dataset_in_memory: false
+use_tb: true
+local_snapshot_root_dir: /mnt/bighdd/fish_contact_backup
+local_snapshot_dir: ${test.local_snapshot_root_dir}/exp_local/${suite.name}_${obs_type}/${task_name}
+resume_wandb_run: false

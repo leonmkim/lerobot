@@ -1,0 +1,24 @@
+# @package eval_cfg
+username: 'leonmkim'
+hostname: 'grasp-login1'
+remote_snapshot_root_dir: '/mnt/grasp_high_usage/leonmkim/contact_estimation/FISH/exp_local/${suite.name}_${obs_type}/${task_name}'
+root_dir: '~/fish_leon'
+expert_dataset_dirpath: '${eval_cfg.root_dir}/FISH/expert_demos/${suite.name}/${task_name}/${name_of_expert_demo}'
+expert_dataset: '${eval_cfg.expert_dataset_dirpath}/demos.zarr'
+alt_expert_dataset_dirpath: '/mnt/crucialSSD/datasetsSSD/fish_datasets/simulated/teleop/FISH/expert_demos/${suite.name}/${task_name}/'
+semantic_demo_grouping_name: 'semantic_demo_grouping.yaml'
+semantic_demo_grouping: '${eval_cfg.expert_dataset_dirpath}/${eval_cfg.semantic_demo_grouping_name}'
+use_tb: true
+resume_wandb_run: false
+num_seen_eval_envs: 1
+num_unseen_eval_envs: 1
+evals_per_env: 1
+wandb_run_id: '24374_0'
+checkpoint_epoch: 249 # can be a list of epochs
+# checkpoint_root_dir: '/home/${oc.env:USER}/fish_leon/FISH'
+checkpoint_root_dir: '/mnt/bighdd/fish_contact_backup'
+checkpoint_weight_dir: '${eval_cfg.checkpoint_root_dir}/exp_local/${suite.name}_${obs_type}/${task_name}/${eval_cfg.wandb_run_id}'
+output_root_dir: '/mnt/crucialSSD/maniskill_evals'
+output_dir: '${eval_cfg.output_root_dir}/${suite.name}_${obs_type}/${task_name}/${eval_cfg.wandb_run_id}/${eval_cfg.checkpoint_epoch}'
+use_existing_eval_seeds: false
+universal_unseen_env_seed_start: null

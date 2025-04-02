@@ -1,0 +1,92 @@
+# @package suite
+defaults:
+  - _self_
+  - frankagym_task@_global_: insertion
+
+suite: frankagym
+name: 'frankagym'
+
+# task settings
+frame_stack: ${agent.n_obs_steps}
+action_repeat: 1
+discount: 0.99
+hidden_dim: 1024
+
+# train settings
+num_train_frames: 2010
+num_seed_frames: 260
+
+num_train_epochs: 5000
+validate_every_epochs: 100
+eval_on_sim_every_epochs: 100
+
+validate_diffusion_on_action_loss_every_epochs: 500
+eval_on_sim_every_epochs_diffusion: 500
+train_eval_diffusion_on_action_loss_every_epochs: 500
+check_topk_every_epochs: 10
+save_snapshot_every_epochs: 5000
+
+# eval
+# maniskill
+num_seen_eval_envs: 30
+num_unseen_eval_envs: 30
+evals_per_env: 1
+
+eval_every_frames: 2000
+num_eval_episodes: 5
+# num_eval_episodes: 5
+
+# snapshot
+save_snapshot: true
+
+wait_for_user_to_start_episode: true
+
+task_make_fn:
+  _target_: suite.frankagym.make
+  name: ${task_name}
+  # height: 84 #224, 84
+  # width: 84 #224, 84
+  height: 240 #224, 84
+  width: 320 #224, 84
+  frame_stack: ${suite.frame_stack}
+  action_repeat: ${suite.action_repeat}
+  seed: ${seed}
+  # enable_arm: true
+  enable_arm: ${agent.enable_arm}
+  enable_gripper: ${enable_gripper}
+  start_with_gripper_open: ${start_with_gripper_open}
+  # enable_camera: true
+  enable_camera: ${agent.enable_camera}
+  path_to_depth_extrinsics: ${path_to_depth_extrinsics}
+  
+  # contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/163386_2/checkpoints/epoch=04-val_loss=0.00.ckpt'
+  # contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/167787_2/checkpoints/epoch=02-val_loss=0.00.ckpt'
+  # contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/167787_2/checkpoints/epoch=06-val_loss=0.00.ckpt'
+  # contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/175604_2/checkpoints/epoch=09-val_loss=0.00.ckpt' # no mask no flow, just context
+  contact_estimation_model_ckpt_path: ${contact_estimation_model_ckpt_path}
+  
+  # use_color: ${use_color}
+  # use_depth: ${use_depth}
+  # use_contact_map: ${use_contact_map}
+  # use_sdf_maps: ${use_sdf_maps}
+  # use_normals_maps: ${use_normals_maps}
+  # which_objects: ${which_objects}
+  x_limit: ${x_limit}
+  y_limit: ${y_limit}
+  z_limit: ${z_limit}
+  device: ${device}
+  interpolation_frequency: ${interpolation_frequency}
+  policy_frequency: ${policy_frequency}
+  debug_timestamps: ${debug_timestamps}
+  stop_after_action: ${stop_after_action}
+  open_loop: ${open_loop}
+  wait_for_new_camera_frames: ${wait_for_new_camera_frames}
+  action_key: ${action_key}
+  action_trajectory_horizon: ${agent.config.policy_cfg.horizon}
+  action_trajectories: ${action_trajectories}
+  path_to_zarr_dataset: ${expert_dataset}
+  # observation_cfg: ???
+  agent_policy_cfg: ???
+  true_action_history: ${true_action_history}
+  
+  

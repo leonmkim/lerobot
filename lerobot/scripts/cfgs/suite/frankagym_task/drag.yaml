@@ -1,0 +1,18 @@
+defaults:
+  - params
+  - _self_
+
+task_name: FrankaDrag-v1
+num_train_frames_bc: 1000
+num_train_frames_vinn: 50
+x_limit : [0.2, 0.7]
+y_limit : [-0.4, 0.4]
+z_limit: [-0.05, 0.5]
+# home_displacement: [0.53, -0.18, 0.22, 180.0, 0.0, 0.0]
+# home_displacement: [0.51, 0.18, 0.25, 180.0, 0.0, 0.0]
+home_displacement: [0.51, -0.0737, 0.34, 180.0, 0.0, 0.0]
+keep_gripper_closed: true
+offset_mask: [1,1,1,0,0,0]
+# enable_arm: false
+# enable_camera: false
+path_to_depth_extrinsics: '~/fish_leon/FISH/cfgs/camera_poses/camera_poses_L515/20240314-164954/color_tf_world.npy'

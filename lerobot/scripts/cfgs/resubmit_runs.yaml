@@ -1,0 +1,52 @@
+common:
+  account: "leonmkim-account"
+  # account: "mp-account"
+  partition: "dineshj-compute"
+  # # partition: "posa-compute"
+  # partition: "batch"
+  time: "12:00:00"
+  # qos: "normal"
+  # qos: "dj-high"
+  qos: "dj-med"
+  # mem_per_gpu: "30G"
+  # exclude: "dj-2080ti-0.grasp.maas,kd-2080ti-1.grasp.maas,mp-2080ti-0.grasp.maas,kd-2080ti-2.grasp.maas,kd-2080ti-3.grasp.maas,kd-2080ti-4.grasp.maas,dj-a40-0.grasp.maas,kd-a40-0.grasp.maas"
+  # # add_manual_requeue_lines: False
+  resume_run: True # default is True
+  # dataset_name: "64_240x320_hbm_twodim_fps_fix_contact_fix_recovery_fix_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act"
+  # array: 0
+  # null: null
+  # gpus: 1
+  # cpus_per_gpu: 8
+  # job_name: "dfsn_sweep"
+  # output: "slurm_output/slurm-%A_%a.out"
+  # error: "slurm_output/slurm-%A_%a.err"
+  # signal: "SIGUSR1@90"
+  # requeue: ''
+  # keep_seed: True
+  # replace_python_with_srun: True
+  # eval_on_sim: True
+  # eval_on_sim_every_epochs: 50
+  # num_seen_eval_envs: 25
+  # num_unseen_eval_envs: 25
+  # train_action_loss_every_epochs: 50
+  # val_diffusion_loss_every_epochs: 50
+  # val_action_loss_every_epochs: 50
+  # save_snapshot_every_epochs: 100
+  # num_train_epochs: 1000
+  # check_topk_every_epochs: 50
+
+jobs:
+  # - run_id: "49205_0"
+  #   array: 0
+  # - run_id: "49334_0"
+  #   array: 0
+  # - run_id: "49214_0"
+  #   array: 0
+  # - run_id: "49213_0"
+  #   array: 0
+  - run_id: "49207_0"
+    array: 0
+  - run_id: "49208_0"
+    array: 0
+  # - run_id: "49210_0"
+  #   array: 0

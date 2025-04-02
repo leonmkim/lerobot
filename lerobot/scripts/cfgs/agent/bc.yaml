@@ -1,0 +1,49 @@
+# @package agent
+_target_: agent.bc.BCAgent
+name: bc
+load_checkpoint: ${eval}
+obs_shape: ??? # to be specified later
+action_shape: ??? # to be specified later
+# dataset_statistics: ??? # to be specified later
+n_obs_steps: ${.config.policy_cfg.n_obs_steps}
+### suite
+obs_type: ${obs_type}
+enable_arm: ${eval}
+enable_camera: ${eval}
+config:
+  _target_: agent.bc.BcAgentConfig
+  obs_type: ${obs_type}
+  suite_name: ${suite.name}
+  device: ${device}
+  use_tb: ${use_tb}
+  debug_timestamps: ${debug_timestamps}
+  policy_cfg:
+    _target_: agent.bc.BcConfig
+    obs_shape: ${agent.obs_shape}
+    action_shape: ${agent.action_shape}
+    feature_dim: 512
+    hidden_dim: ${suite.hidden_dim}
+    augment: True
+    n_obs_steps: 1
+  train_cfg:
+    _target_: utils.TrainConfig
+    lr: 1e-4
+    stddev_schedule: 0.1
+    stddev_clip: 0.3
+  observation_cfg:
+    _target_: agent.encoder.VisualFeatureSet
+    use_depth: ${use_depth}
+    use_color: ${use_color}
+    use_contact_map: ${use_contact_map}
+    use_sdf_maps: ${use_sdf_maps}
+    use_normals_maps: ${use_normals_maps}
+    which_objects: ${which_objects}
+    dtc_max_value: ${dtc_max_value}
+    normals_mask_max_dtc_value: ${normals_mask_max_dtc_value}
+    clamp_dtc: ${clamp_dtc}
+    max_contact_prob: ${max_contact_prob}
+    mask_normals_within_sdf: ${mask_normals_within_sdf}
+    dtc_adaptive_normalization: ${dtc_adaptive_normalization}
+    adaptive_normals_mask: ${adaptive_normals_mask}
+    max_depth: ${max_depth}
+    zero_centered: True # normalize inputs between -0.5 - 0.5

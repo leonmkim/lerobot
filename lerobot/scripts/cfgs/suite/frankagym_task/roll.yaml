@@ -1,0 +1,13 @@
+defaults:
+  - params
+  - _self_
+
+task_name: FrankaRoll-v1
+num_train_frames_bc: 1000
+num_train_frames_vinn: 50
+x_limit : [0.1, 0.7]
+y_limit : [-0.5, 0.5]
+z_limit: [0.05, 0.5]
+keep_gripper_closed: true
+# enable_arm: false
+# enable_camera: false

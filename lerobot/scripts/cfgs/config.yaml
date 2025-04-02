@@ -1,0 +1,192 @@
+defaults:
+  - _self_
+  - agent: diffusion
+  - suite: frankagym
+  - test: config_test
+  # - override hydra/launcher: submitit_local
+
+# Root Dir
+root_dir: '/home/${oc.env:USER}/fish_leon'
+# root_dir: '/home/leonmkim/fish_leon'
+
+# replay buffer
+replay_buffer_size: 150000
+replay_buffer_num_workers: 2
+nstep: 3
+# batch_size: 256
+batch_size: 128
+# batch_size: 4
+# batch_size: 2
+# misc
+# seed: 2
+seed: 0 # for groups 1 and 3
+dataset_shuffle_seed: ${seed}
+valid_dataset_shuffle_seed: ${seed}
+train_dataset_shuffle_seed: ${seed}
+
+device: cuda
+save_video: true
+save_train_video: true
+use_tb: true
+use_wandb: true
+wandb_run_id: ${oc.generate_run_id:null}
+wandb_notes: null
+
+eval: false
+eval_on_sim: false
+eval_on_sim_past_checkpoints: false
+
+# simulation: false
+simulation: true
+
+true_action_history: false
+
+# train_pad_after: 0
+train_pad_after: 4
+
+# feature params
+process_contact_features: ${eval}
+obs_type: 'pixels' # pixels, features
+use_color: false
+use_depth: true
+
+use_masks: true
+# segmentation_model_name: null
+mask_list: ['EE_obj_mask']
+mask_representation: 'channels'
+segmentation_model_name: 'gt_segmentation'
+
+crop_hw: [144,144]
+crop_down_offset: 48
+color_crop_type: null
+depth_crop_type: null
+segmask_crop_type: null
+add_crop_binary_mask: false
+add_coord_conv_map: false
+
+use_context_color: false
+use_context_depth: false
+use_context_segmask: false
+# context_color_crop_type: 'cropping'
+context_color_crop_type: null
+# context_depth_crop_type: 'cropping'
+# context_segmask_crop_type: 'cropping'
+context_depth_crop_type: null
+context_segmask_crop_type: null
+context_add_crop_binary_mask: false
+context_add_coord_conv_map: false
+
+use_contact_map: true
+use_sdf_maps: false
+use_normals_maps: false
+
+which_objects: 'both' #env, grasped, both
+max_contact_prob: 0.1
+max_depth: 2.0 #in m
+# max_sdf: 0.3
+grasped_dtc_max_value: 0.105 # becomes adaptive buffer if dtc_adaptive_normalization is true
+env_dtc_max_value: 0.425 # becomes adaptive buffer if dtc_adaptive_normalization is true
+grasped_normals_mask_max_dtc_value: 0.105 # becomes adaptive buffer if adaptive_normals_mask is true
+env_normals_mask_max_dtc_value: 0.425 # becomes adaptive buffer if adaptive_normals_mask is true
+clamp_dtc: true
+dtc_adaptive_normalization: false
+mask_normals_within_sdf: true
+adaptive_normals_mask: true
+learnable_contact_preprocess_params: false
+# contact_model_name: 'local_multitask_outhd64all_home_crop_h144w144d48_ctxt_seed_183386_epoch_9' 
+contact_model_name: 'gt_contact' 
+# contact_model_name: 'local_multitask_outhd64all_home_crop_h144w144d48_mask_ctxtmask_seed_220979_epoch_9'
+contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/175604_2/checkpoints/epoch=09-val_loss=0.00.ckpt' # no mask no flow, just context
+# contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/197406_2/checkpoints/epoch=08-val_loss=0.00.ckpt' # w/ mask no flow, just context
+# encoder params
+# feature_type: ${oc.visual_features:${agent.config.observation_cfg.image_shape}, ${agent.n_obs_steps}, ${use_color}, ${use_depth}, ${crop_hw}, ${crop_down_offset}, ${color_crop_type}, ${depth_crop_type}, ${segmask_crop_type}, ${add_crop_binary_mask}, ${add_coord_conv_map}, ${use_context_color}, ${use_context_depth}, ${use_context_segmask}, ${context_color_crop_type}, ${context_depth_crop_type}, ${context_segmask_crop_type}, ${context_add_crop_binary_mask}, ${context_add_coord_conv_map}, ${use_contact_map}, ${use_sdf_maps}, ${use_normals_maps}, ${which_objects}, ${grasped_dtc_max_value}, ${env_dtc_max_value}, ${clamp_dtc}, ${grasped_normals_mask_max_dtc_value}, ${env_normals_mask_max_dtc_value}, ${max_contact_prob}, ${mask_normals_within_sdf}, ${max_depth}, ${dtc_adaptive_normalization}, ${adaptive_normals_mask}, ${learnable_contact_preprocess_params}, ${use_masks}, ${mask_representation}, ${mask_list}, ${contact_model_name}, ${agent.config.observation_cfg.learning_rate}, ${agent.config.observation_cfg.weight_decay}}
+# old_feature_type: ${oc.old_visual_features:${agent.config.observation_cfg.image_shape}, ${agent.n_obs_steps}, ${use_color}, ${use_depth}, ${use_contact_map}, ${use_sdf_maps}, ${use_normals_maps}, ${which_objects}, ${grasped_dtc_max_value}, ${env_dtc_max_value}, ${clamp_dtc}, ${grasped_normals_mask_max_dtc_value}, ${env_normals_mask_max_dtc_value}, ${max_contact_prob}, ${mask_normals_within_sdf}, ${max_depth}, ${dtc_adaptive_normalization}, ${adaptive_normals_mask}, ${learnable_contact_preprocess_params}, ${use_masks}, ${mask_representation}, ${mask_list}}
+
+encoder_type: 'small' # small, resnet18, r3m, mvp (NOTE: r3m, mvp not supported for agent vinn)
+debug_timestamps: False
+open_loop: False
+action_trajectories: True
+stop_after_action: False
+interpolation_frequency: 25
+policy_frequency: 5
+wait_for_new_camera_frames: True
+baseline: False
+
+# expert dataset
+# num_demos: 76
+train_demo_idxs_list_or_num: -1 #-1 for all demos
+log_train_every_steps: 25
+
+name_of_expert_demo: '120_240x320_all_twodim_left_to_right_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act'
+expert_dataset_dirpath: '${root_dir}/FISH/expert_demos/${suite.name}/${task_name}/${name_of_expert_demo}'
+
+store_dataset_in_memory: false
+expert_dataset: '${expert_dataset_dirpath}/demos.zarr'
+# expert_action_trajectories_dirpath: '${expert_dataset_dirpath}/action_trajectories_${interpolation_frequency}hz'
+# expert_action_trajectories: '${expert_action_trajectories_dirpath}/action_trajectories.pkl'
+# action_trajectories_config_path: '${expert_action_trajectories_dirpath}/action_trajectories_config.yaml'
+action_key: ${oc.if_else:${action_trajectories}, 'action_trajectory_${interpolation_frequency}hz', 'action'}
+semantic_demo_grouping_name: 'semantic_demo_grouping.yaml'
+semantic_demo_grouping: '${expert_dataset_dirpath}/${semantic_demo_grouping_name}'
+include_groups_list: "all"
+# include_groups_list: 
+#   - "fowlers_twodim_nominal"
+
+expert_dataset_config: '${expert_dataset_dirpath}/demo_config.yaml'
+
+name_of_valid_demo: ${name_of_expert_demo}
+train_num_groups: null
+valid_dataset_dir: '${root_dir}/FISH/expert_demos/${suite.name}/${task_name}/${name_of_valid_demo}/demos.zarr'
+valid_demo_idxs_list_or_num: null
+val_num_groups: 0
+
+universal_unseen_env_seed_start: null
+
+# Load weights
+load_bc: ${agent.load_checkpoint}
+checkpoint_epoch_list: [99, 199, 299, 399, 499, 599, 699, 799, 899, 999, 1249, 1499, 1749, 1999, 2999, 3999, 4999, 5999, 6999, 7999, 8999, 9999]
+
+# WHERE TO SAVE SNAPSHOT: choose one depending on training on work desktop or franka
+snapshot_root_dir: '/mnt/bighdd/fish_contact_backup' # to save snapshots to 15tb drive on local machine
+# snapshot_root_dir: null # to save to normal working dir on franka machine
+save_snapshot: true
+# save_snapshot_every_steps: 100000
+save_last_snapshot: true
+save_snapshot_when_done: true
+top_k_checkpoints: 5
+save_snapshot_link_to_weights_dir: 'deprecated'
+restore_missing_checkpoint: null
+restore_and_eval_all_missing_checkpoints: false
+
+# Train with BC loss
+bc_regularize: false
+bc_weight_type: 'qfilter' # linear, qfilter
+# group_name: ${suite.name}_${obs_type}_${task_name}_${name_of_expert_demo}_${feature_type}_${agent.name}
+
+username: 'leonmkim'
+hostname: 'grasp-login1'
+
+local_snapshot_root_dir: /mnt/bighdd/fish_contact_backup
+local_snapshot_dir: ${local_snapshot_root_dir}/exp_local/${suite.name}_${obs_type}/${task_name}
+
+# experiment_dir: ./exp_local/${suite.name}_${obs_type}_${task_name}/${name_of_expert_demo}/clr_${use_color}_depth_${use_depth}_cntctftrs_${use_contact_features}_cntctonly_${only_contact_channel}/${now:%Y.%m.%d}
+# experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${name_of_expert_demo}/${feature_type}/${agent.name}/${now:%Y.%m.%d}/${now:%H%M%S}
+# experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${name_of_expert_demo}/${feature_type}/${agent.name}/${wandb_run_id}
+# old_experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${name_of_expert_demo}_valgroups_${val_num_groups}/${old_feature_type}/${seed}/${agent.name}/${wandb_run_id}
+experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${wandb_run_id}
+# experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${name_of_expert_demo}_valgroups_${val_num_groups}/${feature_type}/${seed}/${agent.name}/${wandb_run_id}
+hydra:
+  # sweeper:
+  #   params:
+  #     seed: 1,2,3
+  run:
+    dir: ${experiment_dir}
+  sweep:
+    dir: ${experiment_dir}
+    subdir: ${hydra.job.num}
+  job:
+    chdir: true # change to run dir (so that tfrecords are stored in the experiment dir and not in codebase)
+  # launcher:
+  #   tasks_per_node: 1
+  #   nodes: 1
+  #   submitit_folder: ${experiment_dir}/${now:%H%M%S}/.slurm

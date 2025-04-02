@@ -1,0 +1,235 @@
+defaults:
+  - _self_
+  - agent: vinn
+  - suite: frankagym
+  - eval_cfg: sim
+  - override hydra/launcher: submitit_local
+
+# Root Dir
+root_dir: '/home/${oc.env:USER}/fish_leon'
+
+nstep: 3
+# misc
+seed: 41
+dataset_shuffle_seed: ${seed}
+
+device: cuda
+save_video: true
+save_buffer: true
+# save_train_video: false
+use_tb: true
+baseline: False
+use_wandb: true
+
+eval: True
+simulation: true
+
+# feature params
+process_contact_features: ${eval}
+obs_type: 'pixels' # pixels, features
+use_color: true
+use_depth: true
+
+use_masks: false
+mask_list: ['EE_obj_mask']
+mask_representation: 'channels'
+segmentation_model_name: 'gt_segmentation'
+
+crop_hw: [144,144]
+crop_down_offset: 48
+color_crop_type: null
+depth_crop_type: null
+segmask_crop_type: null
+# add_crop_binary_mask: true
+add_crop_binary_mask: false
+add_coord_conv_map: false
+
+use_context_color: false
+use_context_depth: false
+use_context_segmask: false
+# context_color_crop_type: 'cropping'
+context_color_crop_type: null
+# context_depth_crop_type: 'cropping'
+# context_segmask_crop_type: 'cropping'
+context_depth_crop_type: null
+context_segmask_crop_type: null
+context_add_crop_binary_mask: false
+context_add_coord_conv_map: false
+# context_add_coord_conv_map: true
+
+use_contact_map: false
+use_sdf_maps: false
+use_normals_maps: false
+
+which_objects: 'both' #env, grasped, both
+max_contact_prob: 0.1
+max_depth: 2.0 #in m
+# max_sdf: 0.3
+grasped_dtc_max_value: 0.105 # becomes adaptive buffer if dtc_adaptive_normalization is true
+env_dtc_max_value: 0.425 # becomes adaptive buffer if dtc_adaptive_normalization is true
+grasped_normals_mask_max_dtc_value: 0.105 # becomes adaptive buffer if adaptive_normals_mask is true
+env_normals_mask_max_dtc_value: 0.425 # becomes adaptive buffer if adaptive_normals_mask is true
+clamp_dtc: true
+dtc_adaptive_normalization: false
+mask_normals_within_sdf: true
+adaptive_normals_mask: true
+learnable_contact_preprocess_params: false
+contact_model_name: 'local_multitask_outhd64all_home_crop_h144w144d48_ctxt_seed_183386_epoch_9'
+# contact_model_name: 'local_multitask_outhd64all_home_crop_h144w144d48_mask_ctxtmask_seed_220979_epoch_9'
+contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/175604_2/checkpoints/epoch=09-val_loss=0.00.ckpt' # no mask no flow, just context
+# contact_estimation_model_ckpt_path: '~/fish_leon/contact_estimation/artifacts/197406_2/checkpoints/epoch=08-val_loss=0.00.ckpt' # w/ mask no flow, just context
+
+# encoder params
+# feature_type: ${oc.visual_features:${agent.config.observation_cfg.image_shape}, ${agent.n_obs_steps}, ${use_color}, ${use_depth}, ${crop_hw}, ${crop_down_offset}, ${color_crop_type}, ${depth_crop_type}, ${segmask_crop_type}, ${add_crop_binary_mask}, ${add_coord_conv_map}, ${use_context_color}, ${use_context_depth}, ${use_context_segmask}, ${context_color_crop_type}, ${context_depth_crop_type}, ${context_segmask_crop_type}, ${context_add_crop_binary_mask}, ${context_add_coord_conv_map}, ${use_contact_map}, ${use_sdf_maps}, ${use_normals_maps}, ${which_objects}, ${grasped_dtc_max_value}, ${env_dtc_max_value}, ${clamp_dtc}, ${grasped_normals_mask_max_dtc_value}, ${env_normals_mask_max_dtc_value}, ${max_contact_prob}, ${mask_normals_within_sdf}, ${max_depth}, ${dtc_adaptive_normalization}, ${adaptive_normals_mask}, ${learnable_contact_preprocess_params}, ${use_masks}, ${mask_representation}, ${mask_list}, ${contact_model_name}, ${agent.config.observation_cfg.learning_rate}, ${agent.config.observation_cfg.weight_decay}}
+# old_feature_type: ${oc.old_visual_features:${agent.config.observation_cfg.image_shape}, ${agent.n_obs_steps}, ${use_color}, ${use_depth}, ${use_contact_map}, ${use_sdf_maps}, ${use_normals_maps}, ${which_objects}, ${grasped_dtc_max_value}, ${env_dtc_max_value}, ${clamp_dtc}, ${grasped_normals_mask_max_dtc_value}, ${env_normals_mask_max_dtc_value}, ${max_contact_prob}, ${mask_normals_within_sdf}, ${max_depth}, ${dtc_adaptive_normalization}, ${adaptive_normals_mask}, ${learnable_contact_preprocess_params}, ${use_masks}, ${mask_representation}, ${mask_list}}
+
+# Number of evaluation trajectories
+# num_eval: 10
+num_eval: 20
+
+debug_timestamps: False
+open_loop: False
+action_trajectories: True
+stop_after_action: False
+interpolation_frequency: 25
+policy_frequency: 5
+wait_for_new_camera_frames: True
+
+# Start points path
+random_start: False
+eval_starts: '${root_dir}/FISH/eval_starts/${suite.name}_${obs_type}/${task_name}'
+
+# num_demos: 76
+train_demo_idxs_list_or_num: null # null for non vinn methods
+# train_demo_idxs_list_or_num: 76 # null for non vinn methods
+#-1 #-1 for all demos
+# - 44
+# 46 is a slightly easier/better demo
+# - 44
+num_valid_demos: null
+val_num_groups: 3
+
+# name_of_expert_demo: 'book_insertion_wo_ends_wedge_v2_76_all_demos_10hz_no_filter_wo_flow_mask_expert_demos_imp_act'
+name_of_expert_demo: '112_240x320_all_twodim_left_to_right_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act'
+expert_dataset_dirpath: '${root_dir}/FISH/expert_demos/${suite.name}/${task_name}/${name_of_expert_demo}'
+
+expert_dataset: '${expert_dataset_dirpath}/demos.zarr'
+action_key: ${oc.if_else:${action_trajectories}, 'action_trajectory_${interpolation_frequency}hz', 'action'}
+
+semantic_demo_grouping_name: 'semantic_demo_grouping.yaml'
+semantic_demo_grouping: '${expert_dataset_dirpath}/${semantic_demo_grouping_name}'
+expert_dataset_config: '${expert_dataset_dirpath}/demo_config.yaml'
+
+# Train with BC loss
+bc_regularize: false
+bc_weight_type: 'qfilter' # linear, qfilter
+
+# Load weights
+load_checkpoint: ${agent.load_checkpoint}
+# 120 demos
+# RGBD+act history 
+# wandb_run_id: '1045_0' # greece
+# wandb_run_id: '1051_0' # all
+
+# RGBD+mask+act history
+# wandb_run_id: '1000_0' # all
+
+# all books, 10/20 demos per book
+# crp_D+act history
+# wandb_run_id: '3456_0' 
+# wandb_run_id: '3456_1' # seed 1
+# wandb_run_id: '3456_2' # seed 2
+
+# all books, 06/20 demos per book
+# crp_D+mask+act history
+# wandb_run_id: '3465_0'
+# wandb_run_id: '3465_1' # seed 1
+# wandb_run_id: '3465_2' # seed 2
+
+# crp_D+mask+contact+act history
+wandb_run_id: '24380_0'
+# wandb_run_id: '4295_1' # seed 1
+# wandb_run_id: '4295_2' # seed 2
+
+# RGBD+mask+act history
+# wandb_run_id: '1009_1' # seed 1
+# wandb_run_id: '1022_0' # dataset shuffle seed 1
+
+# RGBD+mask+contact(all ftrs)+act history
+# wandb_run_id: '1003_0'
+# wandb_run_id: '1013_1' # seed 1
+# wandb_run_id: '1017_0' # dataset shuffle seed 1
+
+# all books, 6/20 demos per book
+# RGBD+mask+act history
+# wandb_run_id: '1007_0' 
+# wandb_run_id: '1922_1' # seed 1
+# wandb_run_id: '1938_0' # dataset shuffle seed 1
+
+# RGBD+mask+contact(all ftrs)+act history
+# wandb_run_id: '1006_0'
+# wandb_run_id: '1926_1' # seed 1
+# wandb_run_id: '1930_0' # dataset shuffle seed 1
+
+# RGBD+mask+contact(contact+DTC)+act history
+# wandb_run_id: '1745_0'
+
+# all books, 4/20 demos per book
+
+# 112_240x320_all_twodim_left_to_right_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act
+# 14 demos
+
+# RGBD+act history 
+# wandb_run_id: '497_0' # german
+# wandb_run_id: '505_0' # hbm
+# wandb_run_id: '506_0' # lady
+# wandb_run_id: '507_0' # greece
+# wandb_run_id: '508_0' # fowlers
+# wandb_run_id: '509_0' # lib
+# wandb_run_id: '510_0' # modelsys
+# wandb_run_id: '511_0' # electrodyn
+
+# RGBD+mask+act history
+# wandb_run_id: '512_0' # german
+# wandb_run_id: '520_0' # hbm
+# wandb_run_id: '521_0' # lady
+# wandb_run_id: '522_0' # greece
+# wandb_run_id: '523_0' # fowlers
+# wandb_run_id: '524_0' # lib
+# wandb_run_id: '525_0' # modelsys
+# wandb_run_id: '526_0' # electrodyn
+
+# 54_240x320_hbm_twodim_fps_fix_annotated_start_idx_5hz_zstd7_EE_pxl_coords_expert_demos_imp_act
+# 32 held out demos
+# wandb_run_id: '250365_0' # RGBD+act history
+# wandb_run_id: '250375_0' # RGBD+mask+act history
+# wandb_run_id: '250380_0' # RGBD+mask+contact+act history
+# wandb_run_id: '250370_0' # RGBD+contact+act history
+
+true_action_history: false
+wandb_notes: null
+
+checkpoint_epoch: 249 # for depth + all contact
+load_residual_weight: false
+
+checkpoint_root_dir: '/home/${oc.env:USER}/fish_leon/FISH'
+# checkpoint_root_dir: '/mnt/bighdd/fish_contact_backup'
+checkpoint_weight_dir: '${checkpoint_root_dir}/exp_local/${suite.name}_${obs_type}/${task_name}/${wandb_run_id}'
+residual_weight: '${root_dir}/FISH/weights/${suite.name}_${obs_type}/${task_name}/weight.pt'
+
+# old_experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${name_of_expert_demo}_valgroups_${val_num_groups}/${old_feature_type}/${seed}/${agent.name}/${wandb_run_id}
+experiment_dir: ./exp_local/${suite.name}_${obs_type}/${task_name}/${wandb_run_id}
+final_experiment_dir: ${experiment_dir}/${oc.generate_run_id:}
+# ${now:%H%M%S}
+hydra:
+  run:
+    dir: ${final_experiment_dir}
+  sweep:
+    dir: ${final_experiment_dir}
+    subdir: ${hydra.job.num}
+  launcher:
+    tasks_per_node: 1
+    nodes: 1
+    submitit_folder: ${final_experiment_dir}/.slurm
+  job:
+    chdir: true # change to run dir (so that tfrecords are stored in the experiment dir and not in codebase)

@@ -1,0 +1,36 @@
+# @package agent
+_target_: agent.vinn.VINN
+obs_shape: ??? # to be specified later
+dataset_statistics: ???
+device: ${device}
+lr: 3e-4
+use_tb: ${use_tb}
+feature_dim: 512
+augment: True
+obs_type: ${obs_type}
+use_depth: ${use_depth}
+use_color: ${use_color}
+use_contact_map: ${use_contact_map}
+use_sdf_maps: ${use_sdf_maps}
+use_normals_maps: ${use_normals_maps}
+which_objects: ${which_objects}
+max_sdf: ${max_sdf}
+max_contact_prob: ${max_contact_prob}
+mask_normals_within_sdf: ${mask_normals_within_sdf}
+max_depth: ${max_depth}
+adaptive_sdf_buffer: ${adaptive_sdf_buffer}
+dtc_adaptive_normalization: ${dtc_adaptive_normalization}
+adaptive_normals_mask: ${adaptive_normals_mask}
+encoder_type: ${encoder_type} # resnet18, small
+pretrained: False
+vinn_buffer_size: 3
+image_size: 84 # 84, 224
+enable_arm: ${eval}
+enable_camera: ${eval}
+num_k: 1
+name: vinn_${.num_k}k
+provide_topk: False
+provide_obs: False
+debug_timestamps: ${debug_timestamps}
+open_loop: ${open_loop}
+load_bc: True
