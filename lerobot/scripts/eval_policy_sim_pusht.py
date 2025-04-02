@@ -43,6 +43,8 @@ import logging
 import imageio
 import os
 
+import sys
+
 from typing import Optional
 
 from lerobot.common.policies.diffusion.modeling_diffusion import DiffusionPolicy
