@@ -114,6 +114,10 @@ class RenderHandler:
         if self.open_cv_window:
             cv2.imshow("frame", frame)
         if self.record_episode:
+            if self.video_writer is None:
+                self.traj_counter += 1
+                # then open a new video writer
+                self.video_writer = imageio.get_writer(str(self.video_output_path / f'{self.traj_counter}_traj_{self.seed_list[self.traj_counter]}_envseed.mp4'), fps=10, quality=5)
             # save the frame
             # convert the frame to RGB
             frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -129,9 +133,8 @@ class RenderHandler:
     def write_video(self):
         if self.record_episode:
             self.video_writer.close()
-            self.traj_counter += 1
-            # then open a new video writer
-            self.video_writer = imageio.get_writer(str(self.video_output_path / f'{self.traj_counter}_traj_{self.seed_list[self.traj_counter]}_envseed.mp4'), fps=10, quality=5)
+            self.video_writer = None
+            
 #%%
 class DiffusionPolicyLerobotPushTWrapper:
     def __init__(self, 

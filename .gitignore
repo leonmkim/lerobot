@@ -176,3 +176,6 @@ cython_debug/
 slurm_error/*
 slurm_output/*
 slurm_scripts/*
+
+test_slurm_error/*
+test_slurm_output/*

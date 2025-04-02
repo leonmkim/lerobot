@@ -14,13 +14,13 @@
 ##SBATCH --qos=dj-med
 #SBATCH --signal=SIGUSR1@90 # this is for pytorch-lightning
 #SBATCH --requeue
-#SBATCH --array=0-2
+#SBATCH --array=0-20
 #SBATCH --job-name=dp_eval_sim
 #SBATCH --output=test_slurm_output/slurm-%A_%a.out
 #SBATCH --error=test_slurm_error/slurm-%A_%a.err
 #SBATCH --exclude=mp-2080ti-0.grasp.maas,dj-a40-0.grasp.maas,kd-a40-0.grasp.maas
 
-LOCAL_RUN=true
+LOCAL_RUN=false
 
 export HYDRA_FULL_ERROR=1
 
@@ -30,8 +30,7 @@ if [ "$LOCAL_RUN" = false ]; then
     # load conda
     eval "$(conda shell.bash hook)"
     # activate the conda environment
-    conda activate lerobot_p3d
-
+    conda activate just_lerobot
     OUTPUT_ROOT_DIR="/mnt/grasp_high_usage/leonmkim/lerobot_pusht_evals"
     CHECKPOINT_ROOT_DIR="/mnt/grasp_high_usage/leonmkim/contact_estimation/lerobot/pusht/diffusion_policy/train_with_added_metrics"
     ROOT_DIR="/mnt/kostas-graid/datasets/extrinsic_contact_data"
@@ -48,7 +47,7 @@ USE_EXISTING_EVAL_SEEDS=false
 # NUM_SEEN_EVAL=100
 # NUM_UNSEEN_EVAL=100
 NUM_SEEN_EVAL=0
-NUM_UNSEEN_EVAL=5
+NUM_UNSEEN_EVAL=200
 UNIV_UNSEEN_ENV_SEED_START=2000000
 
 RUN_ID_ARRAY_LENGTH=${#RUN_ID_ARRAY[@]}
@@ -59,8 +58,9 @@ RUN_ID_ARRAY_LENGTH=${#RUN_ID_ARRAY[@]}
 #     INCLUDE_GROUPS_LIST_ARRAY+=("['greece_twodim']")
 # done
 
-RUN_ID_ARRAY=("VrZathNUl0Jle")
-EPOCH_ARRAY=("last")
+RUN_ID_ARRAY=("53844_0" "53823_0" "53848_0" "53846_0" "53820_0" "54232_0" "54234_0" "53847_0" "53842_0" "53825_0" "53091_0" "54235_0" "54233_0" "53854_0" "53849_0" "53853_0" "53850_0" "53843_0" "53104_0" "53096_0" "53095_0")
+# EPOCH_ARRAY=("last")
+EPOCH="last"
 
 AGENT="diffusion_pusht"
 SUITE="frankagym"
@@ -84,7 +84,7 @@ if [ "$LOCAL_RUN" = true ]; then
         eval_cfg.num_seen_eval_envs=${NUM_SEEN_EVAL} \
         eval_cfg.num_unseen_eval_envs=${NUM_UNSEEN_EVAL} \
         eval_cfg.wandb_run_id="'${RUN_ID_ARRAY[i]}'" \
-        eval_cfg.checkpoint_epoch=${EPOCH_ARRAY[i]} \
+        eval_cfg.checkpoint_epoch=${EPOCH} \
         eval_cfg.checkpoint_root_dir=${CHECKPOINT_ROOT_DIR} \
         eval_cfg.output_root_dir=${OUTPUT_ROOT_DIR} \
         eval_cfg.root_dir=${ROOT_DIR} \
@@ -103,7 +103,7 @@ else
     eval_cfg.num_seen_eval_envs=${NUM_SEEN_EVAL} \
     eval_cfg.num_unseen_eval_envs=${NUM_UNSEEN_EVAL} \
     eval_cfg.wandb_run_id="'${RUN_ID_ARRAY[$SLURM_ARRAY_TASK_ID]}'" \
-    eval_cfg.checkpoint_epoch=${EPOCH_ARRAY[$SLURM_ARRAY_TASK_ID]} \
+    eval_cfg.checkpoint_epoch=${EPOCH} \
     eval_cfg.checkpoint_root_dir=${CHECKPOINT_ROOT_DIR} \
     eval_cfg.output_root_dir=${OUTPUT_ROOT_DIR} \
     eval_cfg.root_dir=${ROOT_DIR} \

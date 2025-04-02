@@ -81,16 +81,16 @@ DOWN_DIMS="[512,1024,2048]" #default
 # DOWN_DIMS="[256,512,1024]" # small
 # DOWN_DIMS="[64,128,256]" # small
 
-NOISE_SCHEDULER_TYPE="DDPM" # default
-# NOISE_SCHEDULER_TYPE="DDIM" 
+# NOISE_SCHEDULER_TYPE="DDPM" # default
+NOISE_SCHEDULER_TYPE="DDIM" 
 
-NUM_TRAIN_STEPS=100 #default
-# NUM_TRAIN_STEPS=50
+# NUM_TRAIN_STEPS=100 #default
+NUM_TRAIN_STEPS=50
 
-OPTIMIZER="adam" # default
-# OPTIMIZER="adamw" 
+# OPTIMIZER="adam" # default
+OPTIMIZER="adamw" 
 
-REQUEUE_RUN_ID="53846_0"
+REQUEUE_RUN_ID=""
 NOTES="_"
 RUN_ID="null"
 RESUME=false
@@ -166,6 +166,7 @@ srun python lerobot/scripts/train_dp_with_added_metrics.py \
 --policy.drop_n_last_frames=${DROP_N_LAST_FRAMES} \
 --policy.down_dims=${DOWN_DIMS} \
 --policy.noise_scheduler_type=${NOISE_SCHEDULER_TYPE} \
+--policy.num_train_timesteps=${NUM_TRAIN_STEPS} \
 --policy.optimizer=${OPTIMIZER} \
 --steps=${TRAIN_STEPS} \
 --wandb.enable=true \
