@@ -83,6 +83,50 @@ class Unet1dEncoderConfig:
         return f"hst{self.history_length}_out{self.out_channels}_dwnkrnl{self.downsample_kernel_size}_dwnstrd{self.downsample_stride}_dwnpd{self.downsample_padding}"
     
 @dataclass
+class ActionConfig:
+    horizon_length: int = 36
+    action_frame_expression: str = 'relative' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
+    rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
+
+    def __post_init__(self):
+        assert self.horizon_length > 0, "Action horizon must be greater than 0"
+        assert self.action_frame_expression in ['absolute', 'relative', 'delta'], "Action frame expression must be one of ['absolute', 'relative', 'delta']"
+        assert self.rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
+
+        self.action_dim = 3
+        if self.rotation_representation == 'axis_angle':
+            self.action_dim += 3
+        elif self.rotation_representation == 'quaternion':
+            self.action_dim += 4
+        elif self.rotation_representation == '6d':
+            self.action_dim += 6
+        self.action_dim += 1 # gripper action
+
+@dataclass
+class ActionHistoryConfig:
+    enable: bool = False
+    history_length: int = 8
+    action_frame_expression: str = 'relative' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
+    action_frame: str = 'current_end_effector' # previous_end_effector, current_end_effector # only relevant if using relative frame
+    rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
+
+    def __post_init__(self):
+        if self.enable:
+            assert self.history_length > 0, "Action history length must be greater than 0"
+        assert self.action_frame_expression in ['absolute', 'relative', 'delta'], "Action frame expression must be one of ['absolute', 'relative', 'delta']"
+        assert self.rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
+        assert self.action_frame in ['previous_end_effector', 'current_end_effector'], "Action frame must be one of ['previous_end_effector', 'current_end_effector']"
+
+        self.action_dim = 3
+        if self.rotation_representation == 'axis_angle':
+            self.action_dim += 3
+        elif self.rotation_representation == 'quaternion':
+            self.action_dim += 4
+        elif self.rotation_representation == '6d':
+            self.action_dim += 6
+        self.action_dim += 1 # gripper action
+
+@dataclass
 class DiffusionConfig:
     """Configuration class for DiffusionPolicy.
 
@@ -160,6 +204,8 @@ class DiffusionConfig:
             `LeRobotDataset` and `load_previous_and_future_frames` for mor information. Note, this defaults
             to False as the original Diffusion Policy implementation does the same.
     """
+    action_config: ActionConfig = field(default_factory=ActionConfig)
+    action_history_config: ActionHistoryConfig = field(default_factory=ActionHistoryConfig)
 
     # Inputs / output structure.
     n_obs_steps: int = 2
