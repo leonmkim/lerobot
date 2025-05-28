@@ -86,7 +86,9 @@ class Unet1dEncoderConfig:
 class ActionConfig:
     horizon_length: int = 36
     action_frame_expression: str = 'delta' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
-    rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
+    output_action_frame_expression: str = 'absolute' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
+    input_rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
+    output_rotation_representation: str = 'euler_angles' # quaternion, axis_angle, 6d, or euler_angles. Maniskill in absolute control mode uses euler angles, while in delta control mode uses axis angle
     maniskill_prenormalized: bool = True # whether the action is normalized to [-1, 1] range
     output_maniskill_normalized: bool = True # whether the action is normalized to [-1, 1] range
     pos_upper: float = 0.1 # upper bound for position action
@@ -97,7 +99,9 @@ class ActionConfig:
     def __post_init__(self):
         assert self.horizon_length > 0, "Action horizon must be greater than 0"
         assert self.action_frame_expression in ['absolute', 'relative', 'delta'], "Action frame expression must be one of ['absolute', 'relative', 'delta']"
-        assert self.rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
+        assert self.input_rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
+        assert self.output_action_frame_expression in ['absolute', 'relative', 'delta'], "Output action frame expression must be one of ['absolute', 'relative', 'delta']"
+        assert self.output_rotation_representation in ['axis_angle', 'quaternion', '6d', 'euler_angles'], "Output rotation representation must be one of ['axis_angle', 'quaternion', '6d', 'euler_angles']"
 
         if self.action_frame_expression != 'delta':
             # assert not self.maniskill_prenormalized, "Maniskill prenormalization is only supported for delta action frame expression"
@@ -106,11 +110,11 @@ class ActionConfig:
             self.output_maniskill_normalized = False
 
         self.action_dim = 3
-        if self.rotation_representation == 'axis_angle':
+        if self.input_rotation_representation == 'axis_angle':
             self.action_dim += 3
-        elif self.rotation_representation == 'quaternion':
+        elif self.input_rotation_representation == 'quaternion':
             self.action_dim += 4
-        elif self.rotation_representation == '6d':
+        elif self.input_rotation_representation == '6d':
             self.action_dim += 6
         self.action_dim += 1 # gripper action
 
