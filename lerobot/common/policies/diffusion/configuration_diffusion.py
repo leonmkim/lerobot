@@ -86,11 +86,11 @@ class Unet1dEncoderConfig:
 class ActionConfig:
     horizon_length: int = 36
     action_frame_expression: str = 'delta' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
-    output_action_frame_expression: str = 'absolute' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
-    input_rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
-    output_rotation_representation: str = 'euler_angles' # quaternion, axis_angle, 6d, or euler_angles. Maniskill in absolute control mode uses euler angles, while in delta control mode uses axis angle
     maniskill_prenormalized: bool = True # whether the action is normalized to [-1, 1] range
-    output_maniskill_normalized: bool = True # whether the action is normalized to [-1, 1] range
+    input_rotation_representation: str = 'euler_angles' # quaternion, axis_angle, 6d # maniskill sadly uses euler angles
+    # output_action_frame_expression: str = 'absolute' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
+    # output_rotation_representation: str = 'euler_angles' # quaternion, axis_angle, 6d, or euler_angles. 
+    # output_maniskill_normalized: bool = True # whether the action is normalized to [-1, 1] range
     pos_upper: float = 0.1 # upper bound for position action
     pos_lower: float = -0.1 # lower bound for position action
     rot_lower: float = -0.1 # lower bound for rotation action
@@ -99,15 +99,15 @@ class ActionConfig:
     def __post_init__(self):
         assert self.horizon_length > 0, "Action horizon must be greater than 0"
         assert self.action_frame_expression in ['absolute', 'relative', 'delta'], "Action frame expression must be one of ['absolute', 'relative', 'delta']"
-        assert self.input_rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
-        assert self.output_action_frame_expression in ['absolute', 'relative', 'delta'], "Output action frame expression must be one of ['absolute', 'relative', 'delta']"
-        assert self.output_rotation_representation in ['axis_angle', 'quaternion', '6d', 'euler_angles'], "Output rotation representation must be one of ['axis_angle', 'quaternion', '6d', 'euler_angles']"
+        assert self.input_rotation_representation in ['axis_angle', 'quaternion', '6d', 'euler_angles'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d', 'euler_angles']"
+        # assert self.output_action_frame_expression in ['absolute', 'relative', 'delta'], "Output action frame expression must be one of ['absolute', 'relative', 'delta']"
+        # assert self.output_rotation_representation in ['axis_angle', 'quaternion', '6d', 'euler_angles'], "Output rotation representation must be one of ['axis_angle', 'quaternion', '6d', 'euler_angles']"
 
         if self.action_frame_expression != 'delta':
             # assert not self.maniskill_prenormalized, "Maniskill prenormalization is only supported for delta action frame expression"
             print("Warning: Maniskill prenormalization is not supported for absolute or relative action frame expression. Setting maniskill_prenormalized to False.")
             self.maniskill_prenormalized = False
-            self.output_maniskill_normalized = False
+            # self.output_maniskill_normalized = False
 
         self.action_dim = 3
         if self.input_rotation_representation == 'axis_angle':
@@ -124,7 +124,7 @@ class ActionHistoryConfig:
     history_length: int = 8
     action_frame_expression: str = 'delta' # absolute, relative, or delta # https://umi-gripper.github.io/umi.pdf for details
     action_frame: str = 'current_end_effector' # previous_end_effector, current_end_effector # only relevant if using relative frame
-    rotation_representation: str = 'axis_angle' # quaternion, axis_angle, 6d
+    rotation_representation: str = 'euler_angles' # quaternion, axis_angle, 6d # maniskill sadly uses euler angles
     maniskill_prenormalized: bool = True # whether the action is normalized to [-1, 1] range
     pos_upper: float = 0.1 # upper bound for position action
     pos_lower: float = -0.1 # lower bound for position action
@@ -135,7 +135,7 @@ class ActionHistoryConfig:
         if self.enable:
             assert self.history_length > 0, "Action history length must be greater than 0"
         assert self.action_frame_expression in ['absolute', 'relative', 'delta'], "Action frame expression must be one of ['absolute', 'relative', 'delta']"
-        assert self.rotation_representation in ['axis_angle', 'quaternion', '6d'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d']"
+        assert self.rotation_representation in ['axis_angle', 'quaternion', '6d', 'euler_angles'], "Rotation representation must be one of ['axis_angle', 'quaternion', '6d', 'euler_angles']"
         assert self.action_frame in ['previous_end_effector', 'current_end_effector'], "Action frame must be one of ['previous_end_effector', 'current_end_effector']"
 
         if self.action_frame_expression != 'delta':
