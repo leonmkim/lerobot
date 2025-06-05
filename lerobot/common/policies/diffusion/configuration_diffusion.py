@@ -110,7 +110,7 @@ class ActionConfig:
             # self.output_maniskill_normalized = False
 
         self.action_dim = 3
-        if self.input_rotation_representation == 'axis_angle':
+        if self.input_rotation_representation in ['axis_angle', 'euler_angles']:
             self.action_dim += 3
         elif self.input_rotation_representation == 'quaternion':
             self.action_dim += 4
