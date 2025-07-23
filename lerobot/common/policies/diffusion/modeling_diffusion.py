@@ -22,7 +22,7 @@
 TODO(alexander-soare):
   - Remove reliance on diffusers for DDPMScheduler and LR scheduler.
 """
-
+from pathlib import Path
 import math
 from collections import deque
 from typing import Callable, Optional
@@ -46,7 +46,15 @@ from lerobot.common.policies.utils import (
     get_dtype_from_parameters,
     populate_queues,
 )
-
+#%%
+import sys
+path_to_root = Path(__file__).parents[5]
+path_to_FISH = path_to_root / "FISH"
+if str(path_to_root) not in sys.path:
+    sys.path.append(str(path_to_root))
+#%%
+from FISH.agent.encoder import DinoV2InputConfig
+#%%
 class DiffusionPolicy(nn.Module, PyTorchModelHubMixin):
     """
     Diffusion Policy as per "Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"
@@ -164,11 +172,11 @@ def _make_noise_scheduler(name: str, **kwargs: dict) -> DDPMScheduler | DDIMSche
     else:
         raise ValueError(f"Unsupported noise scheduler type {name}")
 
-
 class DiffusionModel(nn.Module):
-    def __init__(self, config: DiffusionConfig):
+    def __init__(self, config: DiffusionConfig, dino_v2_input_config: DinoV2InputConfig = None):
         super().__init__()
         self.config = config
+        self.dino_v2_input_config = dino_v2_input_config
 
         # Build observation encoders (depending on which observations are provided).
         global_cond_dim = config.input_shapes["observation.state"][0]
@@ -178,7 +186,7 @@ class DiffusionModel(nn.Module):
         self._use_action_history = False
         if self.num_images > 0:
             self._use_images = True
-            self.rgb_encoder = DiffusionRgbEncoder(config)
+            self.rgb_encoder = DiffusionRgbEncoder(config, dino_v2_input_config=self.dino_v2_input_config)
             global_cond_dim += self.rgb_encoder.feature_dim * self.num_images
         if "observation.environment_state" in config.input_shapes:
             self._use_env_state = True
@@ -248,12 +256,20 @@ class DiffusionModel(nn.Module):
                 context_observation_images = einops.rearrange(
                     context_observation_images, "b n ... -> (b n) ..."
                 )
+            dinov2_patch_features = None
+            if self.dino_v2_input_config is not None:
+                if self.dino_v2_input_config.enable:
+                    assert "observation.x_norm_patchtokens" in batch, (
+                        "DinoV2InputConfig is enabled, but 'observation.x_norm_patchtokens' is not in the batch."
+                    )
+                    dinov2_patch_features = einops.rearrange(batch["observation.x_norm_patchtokens"], "b s n ... -> (b s n) ...")
             img_features = self.rgb_encoder(
                 einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ..."),
                 # einops.rearrange(batch["observation.images"], "b s n ... -> (b n) s ..."),
                 batch_size=batch_size,
                 num_views=self.num_images,
                 context_observation_images=context_observation_images,
+                dinov2_patch_features=dinov2_patch_features
             )
             # Separate batch dim and sequence dim back out. The camera index dim gets absorbed into the
             # feature dim (effectively concatenating the camera features).
@@ -450,6 +466,122 @@ class SpatialSoftmax(nn.Module):
 
         return feature_keypoints
 
+class ResnetDinoV2Fusion(nn.Module):
+    """
+    A ResNet-based fusion module for DinoV2 features.
+    This module takes DinoV2 features and applies a ResNet-like architecture to fuse them.
+    """
+
+    def __init__(self, config: DiffusionConfig, dino_v2_input_config: DinoV2InputConfig):
+        super().__init__()
+        assert dino_v2_input_config.enable, "DinoV2InputConfig must be enabled for ResnetDinoV2Fusion."
+        self.dino_v2_input_config = dino_v2_input_config
+        self.config = config
+
+        backbone_pre_dino_encoder = getattr(torchvision.models, 'resnet18')(
+                    weights=None
+        )
+        backbone_pre_dino_layers = list(backbone_pre_dino_encoder.children())[:dino_v2_input_config.resnet_fusion_index] # get to third block
+        self.backbone_pre_dino = nn.Sequential(*(backbone_pre_dino_layers))
+        if config.use_group_norm:
+            self.backbone_pre_dino = _replace_submodules(
+                root_module=self.backbone_pre_dino,
+                predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
+            )
+        
+        # change first conv layer to take in 4 channels
+        if config.input_shapes["observation.image"][0] != 3:
+            self.backbone_pre_dino[0] = nn.Conv2d(
+                in_channels=config.input_shapes["observation.image"][0],
+                out_channels=self.backbone_pre_dino[0].out_channels,
+                kernel_size=self.backbone_pre_dino[0].kernel_size,
+                stride=self.backbone_pre_dino[0].stride,
+                padding=self.backbone_pre_dino[0].padding,
+                bias=False,
+            )
+        
+        pre_dino_feature_dim = self.backbone_pre_dino_layers[-1][-1].bn2.num_channels
+        post_dino_input_feature_dim = pre_dino_feature_dim + dino_v2_input_config.dino_adapter_feature_dim
+
+        backbone_post_dino_encoder = getattr(torchvision.models, 'resnet18')(
+                    weights=None
+        )
+        backbone_post_dino_layers = list(backbone_post_dino_encoder.children())[dino_v2_input_config.resnet_fusion_index:-2] # gets rid of the adaptiveavgpool and linear layer
+        self.backbone_post_dino = nn.Sequential(*(backbone_post_dino_layers))
+        if config.use_group_norm:
+            self.backbone_post_dino = _replace_submodules(
+                root_module=self.backbone_post_dino,
+                predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
+            )
+        # replace the input conv layers with a conv layer that takes in the concatenated features
+        self.backbone_post_dino[0][0].conv1 = nn.Conv2d(
+            in_channels=post_dino_input_feature_dim,
+            out_channels=self.backbone_post_dino[0][0].conv1.out_channels,
+            kernel_size=self.backbone_post_dino[0][0].conv1.kernel_size,
+            stride=self.backbone_post_dino[0][0].conv1.stride,
+            padding=self.backbone_post_dino[0][0].conv1.padding,
+            bias=False,
+        )
+        self.backbone_post_dino[0][0].downsample[0] = nn.Conv2d(
+            in_channels=post_dino_input_feature_dim,
+            out_channels=self.backbone_post_dino[0][0].downsample[0].out_channels,
+            kernel_size=self.backbone_post_dino[0][0].downsample[0].kernel_size,
+            stride=self.backbone_post_dino[0][0].downsample[0].stride,
+            padding=self.backbone_post_dino[0][0].downsample[0].padding,
+            bias=False,
+        )
+
+        self.dino_patch_feature_to_resnet_adapter = nn.Sequential(
+            nn.Conv2d(
+                in_channels=dino_v2_input_config.dinov2_feature_dim,
+                out_channels=dino_v2_input_config.dino_adapter_feature_dim,
+                kernel_size=(1,1),
+                stride=(1,1),
+                padding=(0,0),
+                bias=False,
+            ),
+            nn.GroupNorm(num_groups=self.backbone_post_dino[0][0].bn1.num_groups, num_channels=dino_v2_input_config.dino_adapter_feature_dim, eps=self.backbone_post_dino[0][0].bn1.eps, affine=True),
+            nn.ReLU(inplace=True),
+        )
+    
+    def forward(
+        self,
+        images: Tensor,
+        dinov2_patch_features: Tensor,
+    ) -> Tensor:
+        """
+        Args:
+            images: (B*S*N, C, H, W) RGB images.
+            dino_v2_features: (B*S*N, D, H', W') DinoV2 features.
+        Returns:
+            (B * S * N, C', H', W') fused features.
+        """
+        assert images.ndim == 4, f"Expected 4D images tensor, got {images.shape}"
+        assert dinov2_patch_features.ndim == 4, f"Expected 4D DinoV2 features tensor, got {dinov2_patch_features.shape}"
+        assert dinov2_patch_features.shape[0] == images.shape[0], \
+            f"Expected DinoV2 features batch size {dinov2_patch_features.shape[0]}, " \
+            f"got {images.shape[0]} for images of shape {images.shape}"
+        assert dinov2_patch_features.shape[1] == self.dino_v2_input_config.dinov2_feature_dim, \
+            f"Expected DinoV2 features channel dimension {self.dino_v2_input_config.dinov2_feature_dim}, " \
+            f"got {dinov2_patch_features.shape[1]} for DinoV2 features of shape {dinov2_patch_features.shape}"
+        assert dinov2_patch_features.shape[2] == self.dino_v2_input_config.desired_patch_output_size[0] and \
+               dinov2_patch_features.shape[3] == self.dino_v2_input_config.desired_patch_output_size[1], \
+            f"Expected DinoV2 features spatial dimensions {self.dino_v2_input_config.desired_patch_output_size}, " \
+            f"got {dinov2_patch_features.shape[2:]} for DinoV2 features of shape {dinov2_patch_features.shape}"
+        
+        # Pre-Dino feature extraction.
+        pre_dino_features = self.backbone_pre_dino(images)
+
+        dinov2_patch_features = self.dino_patch_feature_to_resnet_adapter(dinov2_patch_features)
+        assert dinov2_patch_features.shape[2:4] == pre_dino_features.shape[2:4], \
+            f"Expected DinoV2 patch features spatial dimensions {pre_dino_features.shape[2:4]}, " \
+            f"got {dinov2_patch_features.shape[2:4]} for DinoV2 patch features of shape {dinov2_patch_features.shape}"
+
+        concatenated_features = torch.cat((pre_dino_features, dinov2_patch_features), dim=1)
+        post_dino_features = self.backbone_post_dino(concatenated_features)
+        return post_dino_features
 
 class DiffusionRgbEncoder(nn.Module):
     """Encoder an RGB image into a 1D feature vector.
@@ -457,7 +589,7 @@ class DiffusionRgbEncoder(nn.Module):
     Includes the ability to normalize and crop the image first.
     """
 
-    def __init__(self, config: DiffusionConfig):
+    def __init__(self, config: DiffusionConfig, dino_v2_input_config: DinoV2InputConfig = None):
         super().__init__()
         # # Set up optional preprocessing.
      
@@ -496,32 +628,41 @@ class DiffusionRgbEncoder(nn.Module):
         # else:
         #     self.augmentations = nn.Identity()
 
-        # Set up backbone.
-        backbone_model = getattr(torchvision.models, config.vision_backbone)(
-            weights=config.pretrained_backbone_weights
-        )
-        # Note: This assumes that the layer4 feature map is children()[-3]
-        # TODO(alexander-soare): Use a safer alternative.
-        backbone_layers = list(backbone_model.children())[:-2]
-        if config.input_shapes["observation.image"][0] != 3:
-            # Replace the first layer to accept different number of channels.
-            backbone_layers[0] = nn.Conv2d(
-                config.input_shapes["observation.image"][0], backbone_layers[0].out_channels, 
-                kernel_size=backbone_layers[0].kernel_size, 
-                stride=backbone_layers[0].stride, 
-                padding=backbone_layers[0].padding, 
-                bias=False)
-        self.backbone = nn.Sequential(*(backbone_layers))
-        if config.use_group_norm:
-            if config.pretrained_backbone_weights:
-                raise ValueError(
-                    "You can't replace BatchNorm in a pretrained model without ruining the weights!"
-                )
-            self.backbone = _replace_submodules(
-                root_module=self.backbone,
-                predicate=lambda x: isinstance(x, nn.BatchNorm2d),
-                func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
+        self.use_resnet_dino_v2_fusion = False
+        if dino_v2_input_config is not None:
+            if dino_v2_input_config.enable and dino_v2_input_config.use_patch_tokens:
+                self.use_resnet_dino_v2_fusion = True
+        
+        if self.use_resnet_dino_v2_fusion:
+            self.backbone = ResnetDinoV2Fusion(config, dino_v2_input_config)
+        else:
+            # Set up backbone.
+            backbone_model = getattr(torchvision.models, config.vision_backbone)(
+                weights=config.pretrained_backbone_weights
             )
+            # Note: This assumes that the layer4 feature map is children()[-3]
+            # TODO(alexander-soare): Use a safer alternative.
+            backbone_layers = list(backbone_model.children())[:-2]
+            if config.input_shapes["observation.image"][0] != 3:
+                # Replace the first layer to accept different number of channels.
+                backbone_layers[0] = nn.Conv2d(
+                    config.input_shapes["observation.image"][0], backbone_layers[0].out_channels, 
+                    kernel_size=backbone_layers[0].kernel_size, 
+                    stride=backbone_layers[0].stride, 
+                    padding=backbone_layers[0].padding, 
+                    bias=False)
+        
+            self.backbone = nn.Sequential(*(backbone_layers))
+            if config.use_group_norm:
+                if config.pretrained_backbone_weights:
+                    raise ValueError(
+                        "You can't replace BatchNorm in a pretrained model without ruining the weights!"
+                    )
+                self.backbone = _replace_submodules(
+                    root_module=self.backbone,
+                    predicate=lambda x: isinstance(x, nn.BatchNorm2d),
+                    func=lambda x: nn.GroupNorm(num_groups=x.num_features // 16, num_channels=x.num_features),
+                )
         
         # Set up pooling and final layers.
         # Use a dry run to get the feature map shape.
@@ -537,7 +678,13 @@ class DiffusionRgbEncoder(nn.Module):
         dummy_input_h_w = config.input_shapes[image_key][1:]
         dummy_input = torch.zeros(size=(1, config.input_shapes[image_key][0], *dummy_input_h_w))
         with torch.inference_mode():
-            dummy_feature_map = self.backbone(dummy_input)
+            if self.use_resnet_dino_v2_fusion:
+                dummy_dinov2_patch_features = torch.zeros(
+                    size=(1, dino_v2_input_config.dinov2_feature_dim, *dino_v2_input_config.desired_patch_output_size)
+                )
+                dummy_feature_map = self.backbone(dummy_input, dummy_dinov2_patch_features)
+            else:
+                dummy_feature_map = self.backbone(dummy_input)
         feature_map_shape = tuple(dummy_feature_map.shape[1:])
         self.pool = SpatialSoftmax(feature_map_shape, num_kp=config.spatial_softmax_num_keypoints)
         self.pre_feature_dim = config.spatial_softmax_num_keypoints * 2
@@ -582,7 +729,7 @@ class DiffusionRgbEncoder(nn.Module):
         self.relu = nn.ReLU()
 
     # def forward(self, x: Tensor, batch_size: int, num_views:int) -> Tensor:
-    def forward(self, observation_images: Tensor, batch_size: int, num_views:int, context_observation_images: Optional[Tensor] = None) -> Tensor:
+    def forward(self, observation_images: Tensor, batch_size: int, num_views:int, context_observation_images: Optional[Tensor] = None, dinov2_patch_features: Optional[Tensor] = None) -> Tensor:
         # I altered to preserve the sequence dim 
         # so that the same transform is applied to the images in the sequence
         # while different transforms are applied to each sequence in the batch
@@ -616,7 +763,13 @@ class DiffusionRgbEncoder(nn.Module):
         # rearrange to flatten b and s dims
         # x = einops.rearrange(x, "(b n) s ... -> (b s n) ...", b=batch_size, n=num_views)
         # Extract backbone feature.
-        observation_images = torch.flatten(self.pool(self.backbone(observation_images)), start_dim=1)
+        if self.use_resnet_dino_v2_fusion:
+            # If using DinoV2, we need to pass the DinoV2 patch features as well.
+            assert dinov2_patch_features is not None, "DinoV2 patch features must be provided when using ResnetDinoV2Fusion."
+            assert context_observation_images is None, "Context observation images are not supported with ResnetDinoV2Fusion."
+            observation_images = torch.flatten(self.pool(self.backbone(observation_images, dinov2_patch_features)), start_dim=1)
+        else:
+            observation_images = torch.flatten(self.pool(self.backbone(observation_images)), start_dim=1)
 
         # TODO FIX THIS WHEN S is not 1! Need to probably broadcast context features to all S??
         if context_observation_images is not None:
@@ -1019,7 +1172,6 @@ class ResnetBlock1d(nn.Module):
 if __name__ == '__main__':
     from lerobot.common.logger import set_global_random_state, get_global_random_state
     import os, sys
-    from pathlib import Path
     # add the project root to the python path
     path_to_fish = Path('~/fish_leon/FISH').expanduser()
     sys.path.append(str(path_to_fish))
