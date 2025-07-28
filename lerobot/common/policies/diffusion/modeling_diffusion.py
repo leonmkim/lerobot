@@ -262,6 +262,9 @@ class DiffusionModel(nn.Module):
                     assert "observation.x_norm_patchtokens" in batch, (
                         "DinoV2InputConfig is enabled, but 'observation.x_norm_patchtokens' is not in the batch."
                     )
+                    assert batch["observation.x_norm_patchtokens"].ndim == 5, (
+                        f"Expected observation.x_norm_patchtokens to be BxSxNxCxHxW, but got {batch['observation.x_norm_patchtokens'].shape}"
+                    )
                     dinov2_patch_features = einops.rearrange(batch["observation.x_norm_patchtokens"], "b s n ... -> (b s n) ...")
             img_features = self.rgb_encoder(
                 einops.rearrange(batch["observation.images"], "b s n ... -> (b s n) ..."),
