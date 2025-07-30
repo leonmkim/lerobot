@@ -262,7 +262,7 @@ class DiffusionModel(nn.Module):
                     assert "observation.x_norm_patchtokens" in batch, (
                         "DinoV2InputConfig is enabled, but 'observation.x_norm_patchtokens' is not in the batch."
                     )
-                    assert batch["observation.x_norm_patchtokens"].ndim == 5, (
+                    assert batch["observation.x_norm_patchtokens"].ndim == 6, (
                         f"Expected observation.x_norm_patchtokens to be BxSxNxCxHxW, but got {batch['observation.x_norm_patchtokens'].shape}"
                     )
                     dinov2_patch_features = einops.rearrange(batch["observation.x_norm_patchtokens"], "b s n ... -> (b s n) ...")
@@ -504,7 +504,7 @@ class ResnetDinoV2Fusion(nn.Module):
                 bias=False,
             )
         
-        pre_dino_feature_dim = self.backbone_pre_dino_layers[-1][-1].bn2.num_channels
+        pre_dino_feature_dim = backbone_pre_dino_layers[-1][-1].bn2.num_channels
         post_dino_input_feature_dim = pre_dino_feature_dim + dino_v2_input_config.dino_adapter_feature_dim
 
         backbone_post_dino_encoder = getattr(torchvision.models, 'resnet18')(
@@ -569,10 +569,10 @@ class ResnetDinoV2Fusion(nn.Module):
         assert dinov2_patch_features.shape[1] == self.dino_v2_input_config.dinov2_feature_dim, \
             f"Expected DinoV2 features channel dimension {self.dino_v2_input_config.dinov2_feature_dim}, " \
             f"got {dinov2_patch_features.shape[1]} for DinoV2 features of shape {dinov2_patch_features.shape}"
-        assert dinov2_patch_features.shape[2] == self.dino_v2_input_config.desired_patch_output_size[0] and \
-               dinov2_patch_features.shape[3] == self.dino_v2_input_config.desired_patch_output_size[1], \
-            f"Expected DinoV2 features spatial dimensions {self.dino_v2_input_config.desired_patch_output_size}, " \
-            f"got {dinov2_patch_features.shape[2:]} for DinoV2 features of shape {dinov2_patch_features.shape}"
+        # assert dinov2_patch_features.shape[2] == self.dino_v2_input_config.desired_patch_output_size[0] and \
+        #        dinov2_patch_features.shape[3] == self.dino_v2_input_config.desired_patch_output_size[1], \
+        #     f"Expected DinoV2 features spatial dimensions {self.dino_v2_input_config.desired_patch_output_size}, " \
+        #     f"got {dinov2_patch_features.shape[2:]} for DinoV2 features of shape {dinov2_patch_features.shape}"
         
         # Pre-Dino feature extraction.
         pre_dino_features = self.backbone_pre_dino(images)
@@ -682,8 +682,14 @@ class DiffusionRgbEncoder(nn.Module):
         dummy_input = torch.zeros(size=(1, config.input_shapes[image_key][0], *dummy_input_h_w))
         with torch.inference_mode():
             if self.use_resnet_dino_v2_fusion:
+                orig_input_h_w = config.orig_cam_shape[-2:]
+                resize_factor = dummy_input_h_w[0] / orig_input_h_w[0]
+                assert resize_factor == dummy_input_h_w[1] / orig_input_h_w[1], \
+                    f"Expected resize factor to be the same for both dimensions, got {resize_factor} and {dummy_input_h_w[1] / orig_input_h_w[1]}"
+                patch_output_size = (math.ceil(dino_v2_input_config.desired_patch_output_size[0] * resize_factor), math.ceil(dino_v2_input_config.desired_patch_output_size[1] * resize_factor))
+            
                 dummy_dinov2_patch_features = torch.zeros(
-                    size=(1, dino_v2_input_config.dinov2_feature_dim, *dino_v2_input_config.desired_patch_output_size)
+                    size=(1, dino_v2_input_config.dinov2_feature_dim, *patch_output_size)
                 )
                 dummy_feature_map = self.backbone(dummy_input, dummy_dinov2_patch_features)
             else:

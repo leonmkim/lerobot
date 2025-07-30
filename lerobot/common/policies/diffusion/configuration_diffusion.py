@@ -232,6 +232,7 @@ class DiffusionConfig:
     """
     action_config: ActionConfig = field(default_factory=ActionConfig)
     action_history_config: ActionHistoryConfig = field(default_factory=ActionHistoryConfig)
+    orig_cam_shape: tuple[int, int, int] = (3, 240, 320)
 
     # Inputs / output structure.
     n_obs_steps: int = 2
