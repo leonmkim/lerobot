@@ -267,7 +267,7 @@ class DiffusionModel(nn.Module):
                         f"Expected observation.x_norm_patchtokens to be BxSxNxCxHxW, but got {batch['observation.x_norm_patchtokens'].shape}"
                     )
                     vit_patch_features = einops.rearrange(batch["observation.x_norm_patchtokens"], "b s n ... -> (b s n) ...")
-            elif self.theia_input_config is not None:
+            if self.theia_input_config is not None:
                 if self.theia_input_config.enable:
                     assert "observation.x_norm_patchtokens" in batch, (
                         "TheiaInputConfig is enabled, but 'observation.x_norm_patchtokens' is not in the batch."
@@ -651,7 +651,8 @@ class DiffusionRgbEncoder(nn.Module):
         if dino_v2_input_config is not None:
             if dino_v2_input_config.enable and dino_v2_input_config.use_patch_tokens:
                 self.use_resnet_dino_v2_fusion = True
-        elif theia_input_config is not None:
+        
+        if theia_input_config is not None:
             if theia_input_config.enable and theia_input_config.use_patch_tokens:
                 self.use_resnet_dino_v2_fusion = True
         
