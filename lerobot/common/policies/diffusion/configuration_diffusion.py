@@ -153,6 +153,18 @@ class ActionHistoryConfig:
         self.action_dim += 1 # gripper action
 
 @dataclass
+class EndEffectorWrenchHistoryConfig:
+    enable: bool = False
+    history_length: int = 8
+    frame: str = 'world' # world or body frame
+
+    def __post_init__(self):
+        if self.enable:
+            assert self.history_length > 0, "Action history length must be greater than 0"
+        assert self.frame in ['world', 'body'], "Action frame must be one of ['world', 'body']"
+        assert self.frame == 'world', "Only world frame is supported for end effector wrench history for now"
+
+@dataclass
 class DiffusionConfig:
     """Configuration class for DiffusionPolicy.
 
@@ -232,6 +244,7 @@ class DiffusionConfig:
     """
     action_config: ActionConfig = field(default_factory=ActionConfig)
     action_history_config: ActionHistoryConfig = field(default_factory=ActionHistoryConfig)
+    end_effector_wrench_history_config: EndEffectorWrenchHistoryConfig = field(default_factory=EndEffectorWrenchHistoryConfig)
     orig_cam_shape: tuple[int, int, int] = (3, 240, 320)
 
     # Inputs / output structure.
@@ -280,6 +293,7 @@ class DiffusionConfig:
     ])
     # Resnet 1d encoder for action history
     action_history_encoder_config: Optional[Unet1dEncoderConfig] = None
+    end_effector_wrench_history_encoder_config: Optional[Unet1dEncoderConfig] = None
 
     # Unet.
     down_dims: tuple[int, ...] = (512, 1024, 2048)
@@ -320,6 +334,16 @@ class DiffusionConfig:
             assert self.action_history_encoder_config is not None, "action_history_encoder_config must be provided if action history is used."
             # self.action_history_encoder_config = Unet1dEncoderConfig(
             #     in_channels=self.input_shapes["observation.action_history"][0],
+            #     out_channels=128,
+            #     history_length=self.n_action_steps,
+            #     kernel_size=self.kernel_size,
+            #     n_groups=self.n_groups,
+            # )
+
+        if "observation.end_effector_external_wrench_in_world_history" in self.input_shapes:
+            assert self.end_effector_wrench_history_encoder_config is not None, "end_effector_wrench_history_encoder_config must be provided if end effector wrench history is used."
+            # self.end_effector_wrench_history_encoder_config = Unet1dEncoderConfig(
+            #     in_channels=self.input_shapes["observation.end_effector_external_wrench_in_world_history"][0],
             #     out_channels=128,
             #     history_length=self.n_action_steps,
             #     kernel_size=self.kernel_size,

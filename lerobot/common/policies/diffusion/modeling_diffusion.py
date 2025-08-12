@@ -185,6 +185,7 @@ class DiffusionModel(nn.Module):
         self._use_images = False
         self._use_env_state = False
         self._use_action_history = False
+        self._use_end_effector_wrench_history = False
         if self.num_images > 0:
             self._use_images = True
             self.rgb_encoder = DiffusionRgbEncoder(config, dino_v2_input_config=self.dino_v2_input_config, theia_input_config=self.theia_input_config)
@@ -197,6 +198,11 @@ class DiffusionModel(nn.Module):
             self._use_action_history = True
             self.action_history_encoder = Unet1dEncoder(config.action_history_encoder_config)
             global_cond_dim += config.action_history_encoder_config.out_channels
+        
+        if "observation.end_effector_external_wrench_in_world_history" in config.input_shapes:
+            self._use_end_effector_wrench_history = True
+            self.end_effector_wrench_history_encoder = Unet1dEncoder(config.end_effector_wrench_history_encoder_config)
+            global_cond_dim += config.end_effector_wrench_history_encoder_config.out_channels
 
         self.global_cond_dim = global_cond_dim
         self.unet = DiffusionConditionalUnet1d(config, global_cond_dim=global_cond_dim * config.n_obs_steps)
@@ -298,6 +304,9 @@ class DiffusionModel(nn.Module):
             # get BxSxD encoding
             # assert action_history_encoding.shape[1:] == (n_obs_steps, self.config.action_history_encoder_config.out_channels), f"Expected action history encoding shape (B, S, D), got {action_history_encoding.shape}"
             global_cond_feats.append(action_history_encoding)
+        if self._use_end_effector_wrench_history:
+            end_effector_wrench_history_encoding = self.end_effector_wrench_history_encoder(batch["observation.end_effector_external_wrench_in_world_history"])
+            global_cond_feats.append(end_effector_wrench_history_encoding)
         if self._use_env_state:
             global_cond_feats.append(batch["observation.environment_state"])
 
