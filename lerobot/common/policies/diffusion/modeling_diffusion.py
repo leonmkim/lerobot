@@ -186,6 +186,7 @@ class DiffusionModel(nn.Module):
         self._use_env_state = False
         self._use_action_history = False
         self._use_end_effector_wrench_history = False
+        self._use_hole_tolerance = False
         if self.num_images > 0:
             self._use_images = True
             self.rgb_encoder = DiffusionRgbEncoder(config, dino_v2_input_config=self.dino_v2_input_config, theia_input_config=self.theia_input_config)
@@ -203,6 +204,10 @@ class DiffusionModel(nn.Module):
             self._use_end_effector_wrench_history = True
             self.end_effector_wrench_history_encoder = Unet1dEncoder(config.end_effector_wrench_history_encoder_config)
             global_cond_dim += config.end_effector_wrench_history_encoder_config.out_channels
+
+        if "observation.hole_tolerance" in config.input_shapes:
+            self._use_hole_tolerance = True
+            global_cond_dim += config.input_shapes["observation.hole_tolerance"][0]
 
         self.global_cond_dim = global_cond_dim
         self.unet = DiffusionConditionalUnet1d(config, global_cond_dim=global_cond_dim * config.n_obs_steps)
@@ -309,6 +314,10 @@ class DiffusionModel(nn.Module):
             global_cond_feats.append(end_effector_wrench_history_encoding)
         if self._use_env_state:
             global_cond_feats.append(batch["observation.environment_state"])
+        if self._use_hole_tolerance:
+            assert batch["observation.hole_tolerance"].ndim == 2, f"Expected hole_tolerance to be (B, C), got {batch['observation.hole_tolerance'].shape}"
+            assert batch["observation.hole_tolerance"].shape[1] == 1, f"Expected hole_tolerance to have shape (B, 1), got {batch['observation.hole_tolerance'].shape}"
+            global_cond_feats.append(einops.rearrange(batch["observation.hole_tolerance"], "b c -> b () c"))
 
         # Concatenate features then flatten to (B, global_cond_dim).
         return torch.cat(global_cond_feats, dim=-1).flatten(start_dim=1)
